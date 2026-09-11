@@ -1,5 +1,5 @@
 {
-  "name": "@open-insight/core",
+  "name": "eval",
   "version": "0.1.0",
   "exports": "./mod.ts",
   "tasks": {
@@ -8,8 +8,6 @@
   "license": "MIT",
   "imports": {
     "@/": "./",
-    "@std/assert": "jsr:@std/assert@1",
-    "picomatch": "npm:picomatch@^4.0.7",
-    "uuid": "npm:uuid@^14.0.2"
+    "@std/assert": "jsr:@std/assert@1"
   }
 }

@@ -1,9 +1,9 @@
 import { Context, Effect, Layer } from "effect";
-import type * as Snapshot from "@/Snapshot.ts";
 import { FileSystem } from "./FileSystem.ts";
 import { Process } from "./Process.ts";
 import { Terminal } from "./Terminal.ts";
 import { Network } from "./Network.ts";
+import type * as Snapshot from "@/snapshot/mod.ts";
 
 export class Sandbox extends Context.Service<
   Sandbox,

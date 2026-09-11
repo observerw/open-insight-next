@@ -4,7 +4,12 @@ import type { SandboxError } from "./SandboxError.ts";
 export class Network extends Context.Service<
   Network,
   {
-    expose(options: { sandboxPort: number }): Effect.Effect<URL, SandboxError>;
+    /**
+     * Exposes a sandbox port and returns a URL that can be used to access it from the host machine.
+     */
+    readonly expose: (
+      options: { sandboxPort: number },
+    ) => Effect.Effect<URL, SandboxError>;
   }
 >()("Network") {}
 

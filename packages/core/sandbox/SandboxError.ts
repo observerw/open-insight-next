@@ -8,9 +8,9 @@ export class ConnectionError
 export class OperationFailed extends Schema.TaggedError<OperationFailed>(
   "open-insight/sandbox/SandboxError/OperationFailed",
 )("OperationFailed", {
+  operation: Schema.String,
   cause: Schema.Defect(),
   message: Schema.optional(Schema.String),
-  operation: Schema.optional(Schema.String),
 }) {}
 
 export const SandboxErrorReason = Schema.Union([
@@ -24,7 +24,7 @@ export class SandboxError
   }) {}
 
 export const operationFailed = (
-  operation?: string,
+  operation: string,
   message?: string,
 ) =>
 (cause: unknown) =>
