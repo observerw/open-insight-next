@@ -1,0 +1,3 @@
+[submodule "tools/webdav-client"]
+	path = tools/webdav-client
+	url = https://github.com/OpenInsightDev/webdav-client.git
