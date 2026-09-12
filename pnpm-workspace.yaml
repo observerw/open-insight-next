@@ -1,0 +1,28 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+  - generators/*
+
+catalogMode: prefer
+
+catalog:
+  "@types/node": ^24
+  '@types/picomatch': ^4.0.3
+  effect: 4.0.0-rc.113
+  eta: ^4.6.0
+  picomatch: ^4.0.7
+  typescript: ^7.0.2
+  uuid: ^14.0.2
+  validator: ^13.15.35
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  vite-plus: 0.3.0
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
+allowBuilds:
+  msgpackr-extract: true

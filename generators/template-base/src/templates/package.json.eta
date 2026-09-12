@@ -1,0 +1,41 @@
+{
+  "name": "@open-insight/<%= it.name %>",
+  "version": "0.0.0",
+  "description": "<%= it.description %>",
+  "homepage": "https://github.com/OpenInsightDev/open-insight#readme",
+  "license": "MIT",
+  "author": "Author Name <author.name@mail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OpenInsightDev/open-insight.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "prepublishOnly": "vp run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "bumpp": "^11.1.0",
+    "typescript": "^7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}
