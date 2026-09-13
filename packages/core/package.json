@@ -21,12 +21,13 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./package.json": "./package.json"
+    "./*": "./*"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
-      "./package.json": "./package.json"
+      "./rolldown-runtime-BBjsoOtd": "./dist/rolldown-runtime-BBjsoOtd.mjs",
+      "./*": "./*"
     },
     "access": "public"
   },
@@ -48,6 +49,7 @@
     "@effect/vitest": "4.0.0-rc.113",
     "@types/node": "^26.1.1",
     "@types/picomatch": "catalog:",
+    "@types/validator": "catalog:",
     "bumpp": "^11.1.0",
     "typescript": "^7.0.2",
     "vite": "catalog:",

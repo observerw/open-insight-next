@@ -7,6 +7,8 @@ export default defineConfig({
     },
     exports: {
       devExports: true,
+      all: true,
+      packageJson: true,
     },
   },
   lint: {

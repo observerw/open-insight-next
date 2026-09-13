@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { NetworkPolicy } from "./NetworkPolicy.ts";
 import type { SandboxError } from "./SandboxError.ts";
 
 export class Network extends Context.Service<
@@ -8,6 +9,9 @@ export class Network extends Context.Service<
      * Exposes a sandbox port and returns a URL that can be used to access it from the host machine.
      */
     readonly expose: (options: { sandboxPort: number }) => Effect.Effect<URL, SandboxError>;
+
+    /** Applies a network policy to the sandbox. */
+    readonly apply: (policy: NetworkPolicy) => Effect.Effect<void, SandboxError>;
   }
 >()("Network") {}
 
