@@ -6,6 +6,11 @@ import type * as Snapshot from "#/snapshot/index.ts";
 import type * as Prompt from "#/prompt/index.ts";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
+export type HarnessError =
+  | Schema.SchemaError
+  | Agent.AgentError
+  | Sandbox.SandboxProvider.ProviderError;
+
 export type AgentSession<Tools extends Record<string, Tool.Any> = Record<string, never>> =
   Readonly<{
     trajectory: Ref.Ref<Prompt.Prompt>;
@@ -71,31 +76,25 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
   HarnessError,
   Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider.ProviderService
 > {
-  const metadata = yield* Schema.decodeEffect(Metadata)({ id, ...options }).pipe(
-    Effect.mapError(HarnessError.init),
-  );
+  const metadata = yield* Schema.decodeEffect(Metadata)({ id, ...options });
 
   const agentProvider = yield* Agent.ProviderService;
-  const sandboxProvider = yield* Sandbox.ProviderService;
+  const sandboxProvider = yield* Sandbox.SandboxProvider.ProviderService;
 
   const acquireSnapshot = (template: Snapshot.Template) =>
-    sandboxProvider
-      .acquireSnapshot({ template, cache: true })
-      .pipe(Effect.mapError(HarnessError.snapshotAcquire(template)));
+    sandboxProvider.acquireSnapshot({ template, cache: true });
 
   const extendSnapshot = (template: Snapshot.Template) => (snapshot: Snapshot.Snapshot) =>
     agentProvider.snapshotExtension.pipe(
       Option.match({
         onNone: () => Effect.succeed(snapshot),
         onSome: ({ instructions, context }) =>
-          sandboxProvider
-            .deriveSnapshot({
-              snapshot,
-              instructions,
-              context: context ?? template.context,
-              cache: true,
-            })
-            .pipe(Effect.mapError(HarnessError.snapshotDerive(instructions))),
+          sandboxProvider.deriveSnapshot({
+            snapshot,
+            instructions,
+            context: context ?? template.context,
+            cache: true,
+          }),
       }),
     );
 
@@ -106,16 +105,12 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
     snapshot: Snapshot.Snapshot;
     options: Partial<SandboxSessionConfig> | undefined;
   }>) {
-    const { resources = Resource.make(), cache = true } = options ?? {};
+    const { resources = Sandbox.Resources.providerDefault, cache = true } = options ?? {};
 
-    const sandbox = yield* sandboxProvider
-      .runSandbox({ snapshot, resources, cache })
-      .pipe(Effect.mapError(HarnessError.sandbox));
+    const sandbox = yield* sandboxProvider.runSandbox({ snapshot, resources, cache });
 
     const runAgent = Effect.gen(function* () {
-      const agentSession = yield* agentProvider
-        .runSession(sandbox)
-        .pipe(Effect.mapError(HarnessError.agent));
+      const agentSession = yield* agentProvider.runSession(sandbox);
 
       return makeAgentSession(agentSession);
     }) satisfies SandboxSession<Tools>["runAgent"];

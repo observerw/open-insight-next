@@ -28,6 +28,8 @@ import {
 } from "./internal/http.ts";
 import { toAcpPrompt } from "./internal/prompt.ts";
 
+const agentError = (cause: unknown): Agent.AgentError => Agent.AgentError.make({ cause });
+
 const DEFAULT_CWD = "/workspace";
 const DEFAULT_PORT = 7689;
 const DEFAULT_PATH = "/acp";
@@ -93,7 +95,7 @@ type SessionContext = Readonly<{
 const protocolEffect = <A>(evaluate: () => Promise<A>): Effect.Effect<A, Agent.AgentError> =>
   Effect.tryPromise({
     try: evaluate,
-    catch: Agent.AgentError.stream,
+    catch: agentError,
   });
 
 const validateAbsolutePath = (
@@ -104,7 +106,7 @@ const validateAbsolutePath = (
   pathService.isAbsolute(path)
     ? Effect.void
     : Effect.fail(
-        Agent.AgentError.stream(new TypeError(`${label} must be an absolute path: ${path}`)),
+        agentError(new TypeError(`${label} must be an absolute path: ${path}`)),
       );
 
 const validateOptions = Effect.fn("Acp.validateOptions")(function* (
@@ -114,13 +116,13 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
   const path = yield* Path.Path;
   if (agentId.trim().length === 0) {
     return yield* Effect.fail(
-      Agent.AgentError.stream(new TypeError("ACP agentId must not be empty")),
+      agentError(new TypeError("ACP agentId must not be empty")),
     );
   }
   const port = options.port ?? DEFAULT_PORT;
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     return yield* Effect.fail(
-      Agent.AgentError.stream(
+      agentError(
         new RangeError(`ACP agent port must be between 1 and 65535: ${port}`),
       ),
     );
@@ -128,7 +130,7 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
   const endpointPath = options.path ?? DEFAULT_PATH;
   if (!endpointPath.startsWith("/") || endpointPath === "/" || endpointPath === "/health") {
     return yield* Effect.fail(
-      Agent.AgentError.stream(new TypeError(`Invalid ACP agent endpoint path: ${endpointPath}`)),
+      agentError(new TypeError(`Invalid ACP agent endpoint path: ${endpointPath}`)),
     );
   }
   yield* validateAbsolutePath(path, "ACP session cwd", options.cwd ?? DEFAULT_CWD);
@@ -138,14 +140,14 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
   for (const [name, value] of Object.entries(options.serveEnv ?? {})) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
       return yield* Effect.fail(
-        Agent.AgentError.stream(
+        agentError(
           new TypeError(`Invalid ACP serve environment variable name: ${name}`),
         ),
       );
     }
     if (typeof value !== "string") {
       return yield* Effect.fail(
-        Agent.AgentError.stream(
+        agentError(
           new TypeError(`ACP serve environment variable ${name} must have a string value`),
         ),
       );
@@ -199,7 +201,7 @@ const userMessage = (
   return message?.role === "user"
     ? Effect.succeed(message)
     : Effect.fail(
-        Agent.AgentError.stream(
+        agentError(
           new TypeError("The last ACP session message must be a user message"),
         ),
       );
@@ -225,7 +227,7 @@ const sessionUpdateStream = (
     const wasActive = yield* Ref.getAndSet(context.turnActive, true);
     if (wasActive) {
       return yield* Effect.fail(
-        Agent.AgentError.stream(
+        agentError(
           new globalThis.Error(
             `ACP session ${context.session.sessionId} already has an active prompt`,
           ),
@@ -284,7 +286,7 @@ const promptStream = (
     const message = yield* userMessage(trajectory);
     const prompt = yield* toAcpPrompt(message, {
       promptCapabilities: context.promptCapabilities,
-    }).pipe(Effect.mapError(Agent.AgentError.stream));
+    }).pipe(Effect.mapError(agentError));
     return sessionUpdateStream(context, prompt).pipe(transform);
   }).pipe(Stream.unwrap);
 
@@ -316,11 +318,11 @@ const sessionStartError =
   (initialized: InitializeResponse) =>
   (cause: unknown): Agent.AgentError => {
     if (cause instanceof RequestError && cause.code === AUTH_REQUIRED_CODE) {
-      return Agent.AgentError.stream(
+      return agentError(
         AcpError.authenticationRequired(authMethodIds(initialized), cause),
       );
     }
-    return Agent.AgentError.stream(cause);
+    return Agent.AgentError.make({ cause: cause });
   };
 
 // The agent server process inside the sandbox binds its listener a moment
@@ -336,7 +338,7 @@ const agentReady = (url: URL, options: Options): Effect.Effect<boolean, Agent.Ag
       }
       return true;
     },
-    catch: Agent.AgentError.stream,
+    catch: agentError,
   });
 
 export const waitForAgentReady = Effect.fn(function* (url: URL, options: Options) {
@@ -357,15 +359,15 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
 
     const { hostUrl } = yield* sandbox
       .expose({ sandboxPort: port })
-      .pipe(Effect.mapError(Agent.AgentError.stream));
+      .pipe(Effect.mapError(agentError));
 
     const url = yield* Effect.try({
       try: () => new URL(path, hostUrl),
-      catch: Agent.AgentError.stream,
+      catch: agentError,
     });
     yield* waitForAgentReady(url, options);
     const transport = yield* openStream(url, options).pipe(
-      Effect.mapError(Agent.AgentError.stream),
+      Effect.mapError(agentError),
     );
 
     const runTurn = yield* FiberSet.makeRuntime<never, void, never>();
@@ -394,7 +396,7 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
     );
     if (initialized.protocolVersion !== PROTOCOL_VERSION) {
       return yield* Effect.fail(
-        Agent.AgentError.stream(
+        agentError(
           new globalThis.Error(
             `ACP agent selected unsupported protocol version ${initialized.protocolVersion}`,
           ),
@@ -405,7 +407,7 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
       (params) => connection.agent.request(methods.agent.authenticate, params),
       initialized,
       options.auth,
-    ).pipe(Effect.mapError(Agent.AgentError.stream));
+    ).pipe(Effect.mapError(agentError));
 
     const session = yield* Effect.tryPromise({
       try: () =>

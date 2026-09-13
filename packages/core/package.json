@@ -33,7 +33,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "test": "vp test",
+    "test": "vitest run",
     "check": "vp check",
     "prepublishOnly": "vp run build"
   },
@@ -45,11 +45,13 @@
     "validator": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.113",
     "@types/node": "^26.1.1",
     "@types/picomatch": "catalog:",
     "bumpp": "^11.1.0",
     "typescript": "^7.0.2",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "5.0.0"
   }
 }

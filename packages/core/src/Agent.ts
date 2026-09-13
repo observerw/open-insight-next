@@ -2,7 +2,14 @@ import * as Prompt from "#/prompt/index.ts";
 import type * as Response from "#/response/index.ts";
 import type * as Sandbox from "#/sandbox/index.ts";
 import type { Instruction } from "#/snapshot/index.ts";
-import { Context, Effect, Layer, Option, Ref, type Scope, Semaphore, Stream } from "effect";
+import { Context, Effect, Layer, Option, Ref, Schema, type Scope, Semaphore, Stream } from "effect";
+
+export class AgentError extends Schema.TaggedError<AgentError>("open-insight/AgentError")(
+  "AgentError",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
 export type Agent = Readonly<{
   /**

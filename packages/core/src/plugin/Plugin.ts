@@ -1,8 +1,8 @@
 import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { PluginError } from "./PluginError.ts";
+import { PluginSchemaId } from "./PluginConstants.ts";
 
-/** The canonical Agent Plugins manifest schema identifier supported by this client. */
-export const PluginSchemaId = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+export { PluginSchemaId } from "./PluginConstants.ts";
 
 /** Fixed location, relative to the plugin root, where skills are discovered. */
 export const SkillsDir = "skills";
@@ -100,12 +100,9 @@ export class Plugin extends Schema.Class<Plugin>("Plugin")({
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
 
 /** Decode a JSON document string into a validated JSON object. */
-const parseJsonObject = (
-  raw: string,
-  label: string,
-): Effect.Effect<Readonly<Record<string, unknown>>, PluginError> =>
+const parseJsonObject = (raw: string, label: string) =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(JsonObject))(raw).pipe(
-    Effect.mapError((cause) => PluginError.invalidManifest(cause, label)),
+    Effect.mapError(() => PluginError.invalidManifest(label)),
   );
 
 /**
@@ -126,14 +123,14 @@ export const validate = Effect.fn(function* (pluginDir: string) {
   // 1. Establish the filesystem-resolved plugin root.
   const root = yield* fs
     .realPath(path.resolve(pluginDir))
-    .pipe(Effect.mapError((cause) => PluginError.invalidPath(pluginDir, cause)));
+    .pipe(Effect.mapError(() => PluginError.invalidPath(pluginDir)));
 
   // 2. Locate, parse and validate the manifest at the root.
   const manifestPath = path.join(root, "plugin.json");
 
   const manifestExists = yield* fs
     .exists(manifestPath)
-    .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+    .pipe(Effect.mapError(() => PluginError.invalidManifest("plugin.json")));
 
   if (!manifestExists) {
     yield* Effect.fail(PluginError.missingManifest(root));
@@ -141,20 +138,15 @@ export const validate = Effect.fn(function* (pluginDir: string) {
 
   const resolvedManifest = yield* fs
     .realPath(manifestPath)
-    .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+    .pipe(Effect.mapError(() => PluginError.invalidManifest("plugin.json")));
 
   if (path.relative(root, resolvedManifest).startsWith("..")) {
-    yield* Effect.fail(
-      PluginError.invalidManifest(
-        new Error("plugin.json resolves outside the plugin root"),
-        "plugin.json",
-      ),
-    );
+    yield* Effect.fail(PluginError.invalidManifest("plugin.json"));
   }
 
   const rawManifest = yield* fs
     .readFileString(manifestPath)
-    .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+    .pipe(Effect.mapError(() => PluginError.invalidManifest("plugin.json")));
 
   const parsed = yield* parseJsonObject(rawManifest, "plugin.json");
 
@@ -177,26 +169,26 @@ export const validate = Effect.fn(function* (pluginDir: string) {
   }
 
   // 5. Fatal: the manifest must declare a supported canonical schema.
-  const schemaId = parsed["$schema"];
+  const schemaId = Schema.decodeUnknownOption(Schema.String)(parsed["$schema"]);
 
-  if (!Option.isSome(Schema.decodeUnknownOption(ManifestSchemaId)(schemaId))) {
-    yield* Effect.fail(
-      PluginError.unsupportedSchema(typeof schemaId === "string" ? schemaId : undefined),
-    );
+  if (Option.isNone(schemaId)) {
+    yield* Effect.fail(PluginError.unsupportedSchema());
+  } else if (Option.isNone(Schema.decodeUnknownOption(ManifestSchemaId)(schemaId.value))) {
+    yield* Effect.fail(PluginError.unsupportedSchema(schemaId.value));
   }
 
   // 6. Fatal: the manifest must declare a valid plugin name.
   const name = yield* Schema.decodeUnknownEffect(PluginName)(parsed["name"]).pipe(
-    Effect.mapError((cause) => PluginError.invalidManifest(cause, "name")),
+    Effect.mapError(() => PluginError.invalidManifest("name")),
   );
 
   // 7. Fatal: any other manifest schema violation (optional field types).
-  const metadataInput: Record<string, unknown> = { ...parsed };
+  const metadataInput = { ...parsed };
 
   if (extensionsInvalid) delete metadataInput.extensions;
 
   const metadata = yield* Schema.decodeUnknownEffect(Manifest)(metadataInput).pipe(
-    Effect.mapError((cause) => PluginError.invalidManifest(cause)),
+    Effect.mapError(() => PluginError.invalidManifest()),
   );
 
   // 8. Discover supported component types from their fixed locations, applying

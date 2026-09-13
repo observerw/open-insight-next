@@ -33,3 +33,5 @@ export class Resources extends Schema.Class<Resources>("Resources")({
 export type ResourcesEncoded = Schema.Codec.Encoded<typeof Resources>;
 
 export const make = Schema.decodeSync(Resources);
+
+export const providerDefault = make({});

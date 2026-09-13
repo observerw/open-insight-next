@@ -11,3 +11,5 @@ export * as Trajectory from "./trajectory/index.ts";
 export * as Agent from "./Agent.ts";
 
 export * as Harness from "./Harness.ts";
+
+export * as Utils from "./utils/index.ts";
