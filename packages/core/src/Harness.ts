@@ -29,6 +29,7 @@ export type SandboxSessionConfig = Readonly<{
   resources: Resource.Resources;
   cache: boolean;
 }>;
+
 export const DefaultSandboxSessionConfig: SandboxSessionConfig = {
   resources: Resource.make(),
   cache: true,
@@ -39,6 +40,7 @@ export class Metadata extends Schema.Class<Metadata>("HarnessMetadata")({
   name: Schema.OptionFromOptionalNullOr(Schema.String),
   description: Schema.OptionFromOptionalNullOr(Schema.String),
 }) {}
+
 type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
 
 export class Harness<ID extends string, Tools extends Record<string, Tool.Any>> extends Data.Class<{
@@ -51,8 +53,11 @@ export class Harness<ID extends string, Tools extends Record<string, Tool.Any>> 
     options?: Partial<SandboxSessionConfig>,
   ): Effect.Effect<SandboxSession<Tools>, HarnessError, Scope.Scope>;
 }> {}
+
 export type Any = Harness<any, any>;
+
 export type IDOf<H> = H extends Harness<infer ID, any> ? ID : never;
+
 export type ToolkitOf<H> = H extends Harness<any, infer Tools> ? Toolkit.Toolkit<Tools> : never;
 
 type Options = Omit<MetadataEncoded, "id"> & Readonly<{}>;
@@ -102,6 +107,7 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
     options: Partial<SandboxSessionConfig> | undefined;
   }>) {
     const { resources = Resource.make(), cache = true } = options ?? {};
+
     const sandbox = yield* sandboxProvider
       .runSandbox({ snapshot, resources, cache })
       .pipe(Effect.mapError(HarnessError.sandbox));
@@ -110,6 +116,7 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
       const agentSession = yield* agentProvider
         .runSession(sandbox)
         .pipe(Effect.mapError(HarnessError.agent));
+
       return makeAgentSession(agentSession);
     }) satisfies SandboxSession<Tools>["runAgent"];
 
@@ -127,6 +134,7 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
 
   const runSandbox = Effect.fn("HarnessService.runSandbox")(function* (template, options) {
     const snapshot = yield* RcMap.get(cache, template);
+
     return yield* makeSandboxSession({ snapshot, options });
   }) satisfies Harness<ID, Tools>["runSandbox"];
 

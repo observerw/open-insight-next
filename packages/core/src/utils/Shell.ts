@@ -9,7 +9,9 @@ export const format = (command: CP.Command): string =>
     Match.tag("PipedCommand", ({ left, right }) => `${format(left)} | ${format(right)}`),
     Match.exhaustive,
   );
+
 export type TemplateValue = string | number | boolean;
+
 export type TemplateExpression = TemplateValue | ReadonlyArray<TemplateValue>;
 
 const formatValue = (value: TemplateExpression | undefined): string =>

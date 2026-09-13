@@ -25,6 +25,7 @@ export class Persist extends Context.Service<
       >(path: string, trajectory: Trajectory.Trajectory<Tools>) {
         const encoded = Trajectory.encode(trajectory);
         const parts = yield* Stream.runCollect(encoded);
+
         const content = yield* Effect.try({
           try: () =>
             JSON.stringify({
@@ -33,6 +34,7 @@ export class Persist extends Context.Service<
             }),
           catch: (cause) => persistenceError("save", path, cause),
         });
+
         yield* fs
           .writeFileString(path, content)
           .pipe(Effect.mapError((cause) => persistenceError("save", path, cause)));
@@ -42,20 +44,25 @@ export class Persist extends Context.Service<
         const content = yield* fs
           .readFileString(path)
           .pipe(Effect.mapError((cause) => persistenceError("load", path, cause)));
+
         const document = yield* Effect.try({
           try: () => JSON.parse(content),
           catch: decodeError,
         });
+
         const metadata = yield* Schema.decodeUnknownEffect(Trajectory.Metadata)(
           document.metadata,
         ).pipe(Effect.mapError(decodeError));
+
         const parts = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown))(
           document.parts,
         ).pipe(
           Effect.mapError(decodeError),
           Effect.map((parts) => parts as PartEncoded[]),
         );
+
         const trajectory = yield* Trajectory.decode(Stream.fromIterable(parts));
+
         return Object.assign(trajectory, { metadata });
       });
 

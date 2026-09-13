@@ -9,6 +9,7 @@ export class InvalidPath extends Schema.TaggedError<InvalidPath>(
 }) {
   override get message(): string {
     const detail = this.cause === undefined ? undefined : Formatter.format(this.cause);
+
     return `Cannot use "${this.path}" as a plugin root${detail === undefined ? "" : `: ${detail}`}`;
   }
 }
@@ -32,6 +33,7 @@ export class UnsupportedSchema extends Schema.TaggedError<UnsupportedSchema>(
 }) {
   override get message(): string {
     const found = this.found === undefined ? "missing" : `"${this.found}"`;
+
     return `Unsupported plugin manifest $schema ${found}; expected ${PluginSchemaId}`;
   }
 }
@@ -45,6 +47,7 @@ export class InvalidManifest extends Schema.TaggedError<InvalidManifest>(
 }) {
   override get message(): string {
     const where = this.field === undefined ? "manifest" : `manifest field "${this.field}"`;
+
     return `Invalid ${where}: ${Formatter.format(this.cause)}`;
   }
 }
@@ -55,6 +58,7 @@ export const ErrorReason = Schema.Union([
   UnsupportedSchema,
   InvalidManifest,
 ]);
+
 export type ErrorReason = Schema.Schema.Type<typeof ErrorReason>;
 
 export class PluginError extends Schema.TaggedError<PluginError>("open-insight/PluginError")(

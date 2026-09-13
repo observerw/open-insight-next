@@ -38,6 +38,7 @@ export class ProviderService extends Context.Service<ProviderService, Provider>(
 type AgentOptions = Readonly<{
   prompt(prompt: Prompt.Prompt): Stream.Stream<Response.StreamPartView<{}>, AgentError>;
 }>;
+
 type ProviderOptions = Readonly<{
   snapshotExtension?: SnapshotExtension;
   runSession(

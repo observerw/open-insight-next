@@ -211,29 +211,38 @@ const toResourceInfo = (info: WebDAV.FileStat): ResourceInfo => {
   const resource: Types.Mutable<ResourceInfo> = {
     type: info.type === "directory" ? "Directory" : "File",
   };
+
   if (info.type === "file") {
     resource.size = BigInt(info.size);
   }
+
   if (info.etag !== null) {
     resource.etag = info.etag;
   }
+
   if (info.mime !== undefined) {
     resource.contentType = info.mime;
   }
+
   const lastModified = decodeDate(info.lastmod);
+
   if (Option.isSome(lastModified)) {
     resource.lastModified = lastModified.value;
   }
+
   const creationDate = decodeDate(info.props?.creationdate);
+
   if (Option.isSome(creationDate)) {
     resource.creationDate = creationDate.value;
   }
+
   return resource;
 };
 
 /** A directory path with exactly one leading and one trailing slash. */
 const directoryPrefix = (path: string): string => {
   const trimmed = path.replace(/^\/+|\/+$/g, "");
+
   return trimmed === "" ? "/" : `/${trimmed}/`;
 };
 
@@ -242,10 +251,12 @@ const childPath = (path: string, name: string): string => `${directoryPrefix(pat
 const concatChunks = (chunks: ReadonlyArray<Uint8Array>): Uint8Array => {
   const data = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
   let offset = 0;
+
   for (const chunk of chunks) {
     data.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return data;
 };
 
@@ -260,8 +271,11 @@ const toRange = (options?: {
   if (options?.offset === undefined && options?.bytesToRead === undefined) {
     return undefined;
   }
+
   const start = Number(options.offset ?? 0n);
+
   if (options.bytesToRead === undefined) return { start };
+
   return { start, end: start + Number(options.bytesToRead) - 1 };
 };
 
@@ -321,6 +335,7 @@ const make = Effect.fn(function* (client: WebDAV.Client) {
     options?: { readonly bytesToRead?: bigint; readonly offset?: bigint },
   ): Stream.Stream<Uint8Array, SandboxError> => {
     const range = toRange(options);
+
     return request(
       operation,
       path,
@@ -349,8 +364,10 @@ const make = Effect.fn(function* (client: WebDAV.Client) {
 
     glob: (pattern, options) => {
       const included = picomatch(pattern);
+
       const excluded =
         options?.exclude === undefined ? () => false : picomatch([...options.exclude]);
+
       return walk("glob", options?.root ?? "/").pipe(
         Effect.map((paths) => paths.filter((path) => included(path) && !excluded(path))),
       );

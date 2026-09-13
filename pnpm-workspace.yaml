@@ -7,9 +7,11 @@ packages:
 catalogMode: prefer
 
 catalog:
+  "@oxlint/plugins": 1.79.0
   "@types/node": ^24
-  '@types/picomatch': ^4.0.3
-  effect: 4.0.0-rc.113
+  "@types/picomatch": ^4.0.3
+  chdb: ^3.3.0
+  effect: ^4.0.0-rc.113
   eta: ^4.6.0
   picomatch: ^4.0.7
   typescript: ^7.0.2
@@ -24,5 +26,8 @@ peerDependencyRules:
     - vite
   allowedVersions:
     vite: "*"
+publicHoistPattern:
+  - "*"
 allowBuilds:
+  chdb: true
   msgpackr-extract: true

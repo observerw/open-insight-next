@@ -14,12 +14,14 @@ export const CopyOptions = Schema.Struct({
   /** Patterns to exclude from the copy. */
   exclude: Schema.optionalKey(Schema.Array(Schema.String)),
 });
+
 export type CopyOptions = Schema.Schema.Type<typeof CopyOptions>;
 
 export const RunOptions = Schema.Struct({
   /** Network available to the build step. */
   network: Schema.optionalKey(Schema.Literals(["default", "none", "host"])),
 });
+
 export type RunOptions = Schema.Schema.Type<typeof RunOptions>;
 
 export const Instruction = Schema.TaggedUnion({
@@ -48,6 +50,7 @@ export const Instruction = Schema.TaggedUnion({
     ...CopyOptions.fields,
   },
 });
+
 export type Instruction = Schema.Schema.Type<typeof Instruction>;
 
 export const workdir = (workdir: string): Instruction =>
@@ -74,4 +77,5 @@ export const copy = (src: string[], dest: string, options: CopyOptions = {}): In
   Instruction.make({ _tag: "Copy", src, dest, ...options });
 
 export const Instructions = Schema.Array(Instruction);
+
 export type Instructions = Schema.Schema.Type<typeof Instructions>;

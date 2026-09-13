@@ -23,7 +23,9 @@ import type {
 } from "effect/unstable/ai/Response";
 
 const PartTypeId = "~effect/ai/Content/Part" as const;
+
 const AnyToolCallPartTypeId = "~effect/ai/Content/AnyToolCallPart" as const;
+
 const AnyToolResultPartTypeId = "~effect/ai/Content/AnyToolResultPart" as const;
 
 // =============================================================================
@@ -205,6 +207,7 @@ export const AnyToolCallPart: Schema.Codec<AnyToolCallPart, ToolCallPartEncoded>
       }),
     ),
   });
+
   const Encoded = Schema.Struct({
     type: Schema.Literal("tool-call"),
     id: Schema.String,
@@ -213,6 +216,7 @@ export const AnyToolCallPart: Schema.Codec<AnyToolCallPart, ToolCallPartEncoded>
     providerExecuted: Schema.optional(Schema.Boolean),
     metadata: Schema.optional(ProviderMetadata),
   });
+
   return Decoded.pipe(
     Schema.encodeTo(
       Encoded,
@@ -297,6 +301,7 @@ export const AnyToolResultPart: Schema.Codec<AnyToolResultPart, ToolResultPartEn
     isFailure: Schema.Boolean,
     name: Schema.String,
   };
+
   const Decoded = Schema.Struct({
     ...Common,
     [PartTypeId]: Schema.Literal(PartTypeId),
@@ -311,6 +316,7 @@ export const AnyToolResultPart: Schema.Codec<AnyToolResultPart, ToolResultPartEn
     encodedResult: Schema.Unknown,
     preliminary: Schema.Boolean,
   });
+
   const Encoded = Schema.Struct({
     ...Common,
     result: Schema.Unknown,
@@ -318,6 +324,7 @@ export const AnyToolResultPart: Schema.Codec<AnyToolResultPart, ToolResultPartEn
     metadata: Schema.optional(ProviderMetadata),
     preliminary: Schema.optional(Schema.Boolean),
   });
+
   return Decoded.pipe(
     Schema.encodeTo(
       Encoded,
@@ -347,6 +354,7 @@ const withAnyToolParts = (
   const toolNames = new Set(
     Object.values(toolkit.tools as Record<string, Tool.Any>).map((tool) => tool.name),
   );
+
   const unknownTool = <S extends Schema.Top>(part: S): S =>
     toolNames.size === 0
       ? part
@@ -359,5 +367,6 @@ const withAnyToolParts = (
             ),
           ),
         ) as S);
+
   return Schema.Union([schema, unknownTool(AnyToolCallPart), unknownTool(AnyToolResultPart)]);
 };

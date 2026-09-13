@@ -21,6 +21,7 @@ export class PersistenceError extends Schema.TaggedError<PersistenceError>(
 }) {}
 
 export const TrajectoryErrorReason = Schema.Union([EncodeError, DecodeError, PersistenceError]);
+
 export type TrajectoryErrorReason = Schema.Schema.Type<typeof TrajectoryErrorReason>;
 
 export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(

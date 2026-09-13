@@ -31,6 +31,7 @@ export const toolTurns = <Tools extends Record<string, Tool.Any>>(
           const call = response as Response.ToolCallParts<Tools>;
           const next = new Map(pending);
           next.set(call.id, call);
+
           return [next, []];
         }
 
@@ -43,12 +44,14 @@ export const toolTurns = <Tools extends Record<string, Tool.Any>>(
         }
 
         const call = pending.get(response.id);
+
         if (call === undefined || call.name !== response.name) {
           return [pending, []];
         }
 
         const next = new Map(pending);
         next.delete(response.id);
+
         return [next, [{ call, result: response } as ToolTurns<Tools>]];
       },
     ),
@@ -69,6 +72,7 @@ export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkit
     const trajectoryPart = Part(merged);
     const encode = Schema.encodeEffect(sourceSchema);
     const decode = Schema.decodeEffect(partSchema);
+
     const context = yield* Effect.context<
       typeof sourceSchema.EncodingServices | typeof partSchema.DecodingServices
     >();
@@ -82,6 +86,7 @@ export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkit
             Effect.fn(function* (response) {
               const encoded = yield* encode(response.response);
               const decoded = yield* decode(encoded);
+
               return trajectoryPart.make({
                 uuid: response.uuid,
                 _tag: "Response",

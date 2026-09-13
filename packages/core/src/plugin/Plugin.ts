@@ -23,6 +23,7 @@ export const ManifestSchemaId = Schema.Literal(PluginSchemaId);
 export const PluginName = Schema.String.check(
   Schema.isPattern(PluginNamePattern, { expected: "a valid plugin name" }),
 );
+
 export type PluginName = Schema.Schema.Type<typeof PluginName>;
 
 /** Closed `author` object of the manifest. */
@@ -31,6 +32,7 @@ export const Author = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   url: Schema.optionalKey(Schema.String),
 });
+
 export type Author = Schema.Schema.Type<typeof Author>;
 
 /**
@@ -52,6 +54,7 @@ export const Manifest = Schema.Struct({
   keywords: Schema.optionalKey(Schema.Array(Schema.String)),
   extensions: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 });
+
 export type Manifest = Schema.Schema.Type<typeof Manifest>;
 
 /** Every top-level field the closed manifest permits. */
@@ -127,15 +130,19 @@ export const validate = Effect.fn(function* (pluginDir: string) {
 
   // 2. Locate, parse and validate the manifest at the root.
   const manifestPath = path.join(root, "plugin.json");
+
   const manifestExists = yield* fs
     .exists(manifestPath)
     .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+
   if (!manifestExists) {
     yield* Effect.fail(PluginError.missingManifest(root));
   }
+
   const resolvedManifest = yield* fs
     .realPath(manifestPath)
     .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+
   if (path.relative(root, resolvedManifest).startsWith("..")) {
     yield* Effect.fail(
       PluginError.invalidManifest(
@@ -144,13 +151,16 @@ export const validate = Effect.fn(function* (pluginDir: string) {
       ),
     );
   }
+
   const rawManifest = yield* fs
     .readFileString(manifestPath)
     .pipe(Effect.mapError((cause) => PluginError.invalidManifest(cause, "plugin.json")));
+
   const parsed = yield* parseJsonObject(rawManifest, "plugin.json");
 
   // 3. Non-fatal: report and ignore unknown top-level fields.
   const knownFields = new Set<string>(KnownManifestFields);
+
   for (const key of Object.keys(parsed)) {
     if (!knownFields.has(key)) {
       warnings.push(`Ignoring unknown manifest field "${key}"`);
@@ -161,12 +171,14 @@ export const validate = Effect.fn(function* (pluginDir: string) {
   const extensionsInvalid = Option.isNone(
     Schema.decodeUnknownOption(JsonObject)(parsed["extensions"]),
   );
+
   if (extensionsInvalid) {
     warnings.push('Ignoring non-object manifest field "extensions"');
   }
 
   // 5. Fatal: the manifest must declare a supported canonical schema.
   const schemaId = parsed["$schema"];
+
   if (!Option.isSome(Schema.decodeUnknownOption(ManifestSchemaId)(schemaId))) {
     yield* Effect.fail(
       PluginError.unsupportedSchema(typeof schemaId === "string" ? schemaId : undefined),
@@ -180,7 +192,9 @@ export const validate = Effect.fn(function* (pluginDir: string) {
 
   // 7. Fatal: any other manifest schema violation (optional field types).
   const metadataInput: Record<string, unknown> = { ...parsed };
+
   if (extensionsInvalid) delete metadataInput.extensions;
+
   const metadata = yield* Schema.decodeUnknownEffect(Manifest)(metadataInput).pipe(
     Effect.mapError((cause) => PluginError.invalidManifest(cause)),
   );
@@ -193,14 +207,20 @@ export const validate = Effect.fn(function* (pluginDir: string) {
   const skills: PluginSkill[] = [];
   yield* Effect.gen(function* () {
     const dir = path.join(root, SkillsDir);
+
     if (!(yield* fs.exists(dir))) return;
+
     if ((yield* fs.stat(dir)).type !== "Directory") {
       warnings.push('Ignoring "skills" location: not a directory');
+
       return;
     }
+
     for (const entry of yield* fs.readDirectory(dir)) {
       const markdown = path.join(dir, entry, SkillMarkdownFile);
+
       if (!(yield* fs.exists(markdown))) continue;
+
       if ((yield* fs.stat(markdown)).type === "File") {
         skills.push(new PluginSkill({ name: entry, path: path.join(dir, entry) }));
       } else {
@@ -218,18 +238,25 @@ export const validate = Effect.fn(function* (pluginDir: string) {
   const mcpServers: PluginMcpServer[] = [];
   yield* Effect.gen(function* () {
     const file = path.join(root, McpConfigFile);
+
     if (!(yield* fs.exists(file))) return;
+
     if ((yield* fs.stat(file)).type !== "File") {
       warnings.push('Ignoring "mcp.json": not a regular file');
+
       return;
     }
+
     const mcpRaw = yield* fs.readFileString(file);
     const mcpParsed = yield* parseJsonObject(mcpRaw, "mcp.json");
     const servers = Schema.decodeUnknownOption(JsonObject)(mcpParsed["mcpServers"]);
+
     if (Option.isNone(servers)) {
       warnings.push('Ignoring "mcp.json": invalid MCP configuration');
+
       return;
     }
+
     for (const [serverName, value] of Object.entries(servers.value)) {
       if (Schema.is(JsonObject)(value)) {
         mcpServers.push(new PluginMcpServer({ name: serverName }));

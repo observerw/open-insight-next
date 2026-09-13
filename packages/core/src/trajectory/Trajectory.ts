@@ -8,12 +8,15 @@ export class Metadata extends Schema.Class<Metadata>("Metadata")({
   name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
 }) {}
+
 export type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
 
 export const PromptPart = Schema.TaggedStruct("Prompt", {
   messages: Schema.Array(Prompt.Message),
 });
+
 export type PromptPart = Schema.Schema.Type<typeof PromptPart>;
+
 export type PromptPartEncoded = Schema.Codec.Encoded<typeof PromptPart>;
 
 export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
@@ -21,9 +24,11 @@ export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
     response: Response.PartView(toolkit),
     timestamp: Timestamp,
   });
+
 export type ResponsePart<T extends Toolkit.Any> = Schema.Schema.Type<
   ReturnType<typeof ResponsePart<T>>
 >;
+
 export type ResponsePartEncoded = Schema.Codec.Encoded<ReturnType<typeof ResponsePart<any>>>;
 
 export const PartMetadata = Schema.Struct({
@@ -31,15 +36,18 @@ export const PartMetadata = Schema.Struct({
   session: Schema.optional(Schema.String),
   extra: Schema.optional(Schema.Json),
 });
+
 export type PartMetadata = Schema.Schema.Type<typeof PartMetadata>;
 
 export const Part = <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
   Schema.Union([PromptPart, ResponsePart(toolkit)]).mapMembers(
     Tuple.map(Schema.fieldsAssign(PartMetadata.fields)),
   );
+
 export type Part<Tools extends Record<string, Tool.Any>> = Schema.Schema.Type<
   ReturnType<typeof Part<Tools>>
 >;
+
 export type PartEncoded = Schema.Codec.Encoded<ReturnType<typeof Part<any>>>;
 
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
@@ -52,7 +60,9 @@ export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
  */
 export type Trajectory<Tools extends Record<string, Tool.Any>> = PartStream<Tools> &
   Readonly<{ toolkit: Toolkit.Toolkit<Tools>; metadata: Metadata }>;
+
 export type Any = Trajectory<Record<string, never>>;
+
 export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError.TrajectoryError>;
 
 export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(

@@ -26,6 +26,7 @@ export class ContainerfileTemplate extends Schema.TaggedClass<ContainerfileTempl
 ) {}
 
 export const Template = Schema.Union([InstructionsTemplate, ContainerfileTemplate]);
+
 export type Template = Schema.Schema.Type<typeof Template>;
 
 export const SNAPSHOT_NAME = "open-insight-snapshot";
@@ -38,6 +39,7 @@ const encodeInstruction = (instruction: Instruction): string =>
     Cmd: ({ cmd }) => `CMD ${JSON.stringify(cmd)}`,
     Env: ({ env }) => {
       const keys = Object.keys(env).sort();
+
       return `ENV ${keys.map((key) => `${key}=${JSON.stringify(env[key])}`).join(" ")}`;
     },
     Copy: ({ src, dest, from, chmod, chown, link, parents, exclude }) => {
@@ -49,7 +51,9 @@ const encodeInstruction = (instruction: Instruction): string =>
         parents === undefined ? undefined : `--parents${parents ? "" : "=false"}`,
         ...(exclude ?? []).map((pattern) => `--exclude=${pattern}`),
       ].filter((option): option is string => option !== undefined);
+
       const prefix = options.length === 0 ? "" : `${options.join(" ")} `;
+
       return `COPY ${prefix}${JSON.stringify([...src, dest])}`;
     },
   });
@@ -63,17 +67,21 @@ export const encode = ({
   instructions: Instructions;
 }>): string => {
   const lines = [`FROM ${image}`, ...instructions.map(encodeInstruction)];
+
   return `${lines.join("\n")}\n`;
 };
 
 /** Write provider-independent instructions to a temporary Containerfile and return its path. */
 export const writeInstructions = Effect.fn(function* (template: InstructionsTemplate) {
   const fs = yield* FileSystem.FileSystem;
+
   const containerfilePath = yield* fs.makeTempFile({
     prefix: "open-insight-",
     suffix: ".Containerfile",
   });
+
   yield* fs.writeFileString(containerfilePath, encode(template));
+
   return containerfilePath;
 });
 
@@ -94,6 +102,7 @@ export const build = Effect.fn(function* ({
       defaultCommand,
     )}\n`,
   );
+
   const resolvedContext =
     context === undefined
       ? path.dirname(resolvedFilePath)

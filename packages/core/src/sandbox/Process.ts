@@ -75,6 +75,7 @@ const makeShellCommand = (
   options: ShellCommandOptions = {},
 ): Command => {
   const { shell = "/bin/sh", ...commandOptions } = options;
+
   return CP.make(shell, ["-c", makeScript(strings, values)], commandOptions);
 };
 
@@ -166,6 +167,7 @@ export const make = (spawn: PlatformSpawn): Process["Service"] => {
     if (isTemplateStringsArray(first)) {
       return string(makeShellCommand(first, values));
     }
+
     return (strings: TemplateStringsArray, ...innerValues: ReadonlyArray<TemplateExpression>) =>
       string(makeShellCommand(strings, innerValues, first));
   }

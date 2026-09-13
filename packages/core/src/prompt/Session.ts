@@ -26,6 +26,7 @@ export const makeSession = <E>({ init, next }: SessionOptions<E>) =>
     init: Prompt.make(init),
     next: Effect.fn(function* (response) {
       const nextPrompt = next?.(response) ?? Effect.succeed(null);
+
       return yield* nextPrompt.pipe(
         Effect.map(Option.fromNullOr),
         Effect.map(Option.map(Prompt.make)),
@@ -38,6 +39,7 @@ export const make = <E>({ runSession }: Options<E>) =>
     _tag: "Provider" as const,
     runSession: Effect.fn(function* (sandbox) {
       const session = yield* runSession(sandbox);
+
       return makeSession(session);
     }),
   }) satisfies Provider<E>;

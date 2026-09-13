@@ -128,6 +128,7 @@ export class Process extends Context.Service<
 
         if (exitCode !== 0 && errorOnNonZeroExit) {
           const { stdout, stderr } = yield* toExecHandle(handle);
+
           return yield* ProcessError.exit(exitCode, stdout, stderr);
         }
 
@@ -137,6 +138,7 @@ export class Process extends Context.Service<
       const exec: Process["Service"]["exec"] = Effect.fn(
         function* (command, options) {
           const handle = yield* process(command, options);
+
           return yield* toExecHandle(handle);
         },
         (effect) => effect.pipe(Effect.scoped),
