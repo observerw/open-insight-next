@@ -29,3 +29,7 @@ export class Resources extends Schema.Class<Resources>("Resources")({
   /** Maximum time allowed for the sandbox to run, in seconds. */
   runTimeoutSec: Schema.OptionFromOptionalNullOr(NonNegativeInt),
 }) {}
+
+export type ResourcesEncoded = Schema.Codec.Encoded<typeof Resources>;
+
+export const make = Schema.decodeSync(Resources);

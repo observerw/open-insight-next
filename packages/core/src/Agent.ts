@@ -1,10 +1,8 @@
 import * as Prompt from "#/prompt/index.ts";
+import type * as Response from "#/response/index.ts";
 import type * as Sandbox from "#/sandbox/index.ts";
 import type { Instruction } from "#/snapshot/index.ts";
-
 import { Context, Effect, Layer, Option, Ref, type Scope, Semaphore, Stream } from "effect";
-
-import type * as Response from "#/response/index.ts";
 
 export type Agent = Readonly<{
   /**

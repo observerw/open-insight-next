@@ -26,12 +26,12 @@ export type SandboxSession<Tools extends Record<string, Tool.Any> = Record<strin
   }>;
 
 export type SandboxSessionConfig = Readonly<{
-  resources: Resource.Resources;
+  resources: Sandbox.Resources.Resources;
   cache: boolean;
 }>;
 
 export const DefaultSandboxSessionConfig: SandboxSessionConfig = {
-  resources: Resource.make(),
+  resources: Sandbox.Resources.make({}),
   cache: true,
 };
 

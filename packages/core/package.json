@@ -38,6 +38,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "catalog:",
     "effect": "catalog:",
     "picomatch": "catalog:",
     "uuid": "catalog:",

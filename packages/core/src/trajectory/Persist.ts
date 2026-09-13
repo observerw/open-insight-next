@@ -63,7 +63,7 @@ export class Persist extends Context.Service<
 
         const trajectory = yield* Trajectory.decode(Stream.fromIterable(parts));
 
-        return Object.assign(trajectory, { metadata });
+        return Trajectory.metadata(trajectory, metadata);
       });
 
       return { save, load };

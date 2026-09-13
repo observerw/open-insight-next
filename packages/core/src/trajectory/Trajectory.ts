@@ -1,4 +1,4 @@
-import { Effect, Schema, Stream, Tuple } from "effect";
+import { Effect, Function, Schema, Stream, Tuple } from "effect";
 import { Prompt, type Tool, Toolkit } from "effect/unstable/ai";
 import * as Response from "#/response/index.ts";
 import { Timestamp, Uuid } from "#/utils/Schema.ts";
@@ -8,15 +8,12 @@ export class Metadata extends Schema.Class<Metadata>("Metadata")({
   name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
 }) {}
-
 export type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
 
 export const PromptPart = Schema.TaggedStruct("Prompt", {
   messages: Schema.Array(Prompt.Message),
 });
-
 export type PromptPart = Schema.Schema.Type<typeof PromptPart>;
-
 export type PromptPartEncoded = Schema.Codec.Encoded<typeof PromptPart>;
 
 export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
@@ -24,11 +21,9 @@ export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
     response: Response.PartView(toolkit),
     timestamp: Timestamp,
   });
-
 export type ResponsePart<T extends Toolkit.Any> = Schema.Schema.Type<
   ReturnType<typeof ResponsePart<T>>
 >;
-
 export type ResponsePartEncoded = Schema.Codec.Encoded<ReturnType<typeof ResponsePart<any>>>;
 
 export const PartMetadata = Schema.Struct({
@@ -36,18 +31,15 @@ export const PartMetadata = Schema.Struct({
   session: Schema.optional(Schema.String),
   extra: Schema.optional(Schema.Json),
 });
-
 export type PartMetadata = Schema.Schema.Type<typeof PartMetadata>;
 
 export const Part = <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
   Schema.Union([PromptPart, ResponsePart(toolkit)]).mapMembers(
     Tuple.map(Schema.fieldsAssign(PartMetadata.fields)),
   );
-
 export type Part<Tools extends Record<string, Tool.Any>> = Schema.Schema.Type<
   ReturnType<typeof Part<Tools>>
 >;
-
 export type PartEncoded = Schema.Codec.Encoded<ReturnType<typeof Part<any>>>;
 
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
@@ -76,7 +68,7 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
   const encodingContext = yield* Effect.context<typeof partSchema.EncodingServices>();
   const encodePart = Schema.encodeEffect(partSchema);
 
-  const parts = trajectory.pipe(
+  return trajectory.pipe(
     Stream.mapEffect((part) =>
       encodePart(part).pipe(
         Effect.mapError(TrajectoryError.encodeError),
@@ -84,8 +76,6 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
       ),
     ),
   );
-
-  return parts;
 }, Stream.unwrap);
 
 export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolkit.Any>>(
@@ -108,3 +98,13 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
 
   return Object.assign(parts, { toolkit }) as Trajectory<Toolkit.MergedTools<Toolkits>>;
 });
+
+/**
+ * Overrides the metadata of a trajectory with the given metadata.
+ */
+export const metadata = Function.dual<
+  <T extends Any>(metadata: Metadata) => (trajectory: T) => T,
+  <T extends Any>(trajectory: T, metadata: Metadata) => T
+>(2, <T extends Any>(trajectory: T, metadata: Metadata): T =>
+  Object.assign(trajectory, { metadata }),
+);

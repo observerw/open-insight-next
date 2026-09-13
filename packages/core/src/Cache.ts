@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Match, Path } from "effect";
 
-const CACHE_DIR = ".open-insight" as const;
+export const DEFAULT_CACHE_DIR = ".open-insight" as const;
 
 /**
  * Resolve the cache directory path from configuration and ensure it exists on
@@ -18,8 +18,8 @@ export const ensureDir = Effect.fn(function* ({
 
   const dir = yield* Match.value(global)
     .pipe(
-      Match.when(true, () => fs.makeTempDirectory({ prefix: CACHE_DIR })),
-      Match.when(false, () => Effect.succeed(path.resolve(CACHE_DIR))),
+      Match.when(true, () => fs.makeTempDirectory({ prefix: DEFAULT_CACHE_DIR })),
+      Match.when(false, () => Effect.succeed(path.resolve(DEFAULT_CACHE_DIR))),
       Match.exhaustive,
     )
     .pipe(Effect.map((dir) => path.resolve(dir, subdir)));
