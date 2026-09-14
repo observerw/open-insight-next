@@ -14,8 +14,9 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
 import { Cause, Effect, FiberSet, Layer, Path, Queue, Ref, Schedule, Stream } from "effect";
-import { Prompt, Response } from "effect/unstable/ai";
 import * as Agent from "#/Agent.ts";
+import * as Prompt from "#/prompt/index.ts";
+import * as Response from "#/response/index.ts";
 import * as Sandbox from "#/sandbox/index.ts";
 import * as Snapshot from "#/snapshot/index.ts";
 import * as Bash from "#/utils/Shell.ts";
@@ -105,9 +106,7 @@ const validateAbsolutePath = (
 ): Effect.Effect<void, Agent.AgentError> =>
   pathService.isAbsolute(path)
     ? Effect.void
-    : Effect.fail(
-        agentError(new TypeError(`${label} must be an absolute path: ${path}`)),
-      );
+    : Effect.fail(agentError(new TypeError(`${label} must be an absolute path: ${path}`)));
 
 const validateOptions = Effect.fn("Acp.validateOptions")(function* (
   agentId: string,
@@ -115,16 +114,12 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
 ) {
   const path = yield* Path.Path;
   if (agentId.trim().length === 0) {
-    return yield* Effect.fail(
-      agentError(new TypeError("ACP agentId must not be empty")),
-    );
+    return yield* Effect.fail(agentError(new TypeError("ACP agentId must not be empty")));
   }
   const port = options.port ?? DEFAULT_PORT;
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     return yield* Effect.fail(
-      agentError(
-        new RangeError(`ACP agent port must be between 1 and 65535: ${port}`),
-      ),
+      agentError(new RangeError(`ACP agent port must be between 1 and 65535: ${port}`)),
     );
   }
   const endpointPath = options.path ?? DEFAULT_PATH;
@@ -140,9 +135,7 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
   for (const [name, value] of Object.entries(options.serveEnv ?? {})) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
       return yield* Effect.fail(
-        agentError(
-          new TypeError(`Invalid ACP serve environment variable name: ${name}`),
-        ),
+        agentError(new TypeError(`Invalid ACP serve environment variable name: ${name}`)),
       );
     }
     if (typeof value !== "string") {
@@ -189,7 +182,6 @@ const snapshotExtension = (agentId: string, options: Options): Agent.SnapshotExt
       ...(serveEnv === undefined || Object.keys(serveEnv).length === 0
         ? []
         : [Snapshot.Instruction.env({ ...serveEnv })]),
-      Snapshot.Instruction.cmd("acp-agent", "serve", ...serveArgs),
     ],
   };
 };
@@ -200,11 +192,7 @@ const userMessage = (
   const message = trajectory.content[trajectory.content.length - 1];
   return message?.role === "user"
     ? Effect.succeed(message)
-    : Effect.fail(
-        agentError(
-          new TypeError("The last ACP session message must be a user message"),
-        ),
-      );
+    : Effect.fail(agentError(new TypeError("The last ACP session message must be a user message")));
 };
 
 const cancelTurn = (
@@ -318,9 +306,7 @@ const sessionStartError =
   (initialized: InitializeResponse) =>
   (cause: unknown): Agent.AgentError => {
     if (cause instanceof RequestError && cause.code === AUTH_REQUIRED_CODE) {
-      return agentError(
-        AcpError.authenticationRequired(authMethodIds(initialized), cause),
-      );
+      return agentError(AcpError.authenticationRequired(authMethodIds(initialized), cause));
     }
     return Agent.AgentError.make({ cause: cause });
   };
@@ -353,11 +339,13 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
 ): Effect.fn.Return<Agent.Provider, Agent.AgentError, Path.Path> {
   yield* validateOptions(agentId, options);
 
-  const runSession = Effect.fn("Acp.runSession")(function* (sandbox: Sandbox.Sandbox) {
+  const runSession = Effect.fn("Acp.runSession")(function* () {
     const port = options.port ?? DEFAULT_PORT;
     const path = options.path ?? DEFAULT_PATH;
 
-    const { hostUrl } = yield* sandbox
+    const sandbox = yield* Sandbox.Sandbox;
+
+    const hostUrl = yield* sandbox.network
       .expose({ sandboxPort: port })
       .pipe(Effect.mapError(agentError));
 
@@ -366,9 +354,7 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
       catch: agentError,
     });
     yield* waitForAgentReady(url, options);
-    const transport = yield* openStream(url, options).pipe(
-      Effect.mapError(agentError),
-    );
+    const transport = yield* openStream(url, options).pipe(Effect.mapError(agentError));
 
     const runTurn = yield* FiberSet.makeRuntime<never, void, never>();
     const startTurn: StartTurn = (effect) => {

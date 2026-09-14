@@ -41,20 +41,20 @@ export type Part<Tools extends Record<string, Tool.Any>> = Schema.Schema.Type<
   ReturnType<typeof Part<Tools>>
 >;
 export type PartEncoded = Schema.Codec.Encoded<ReturnType<typeof Part<any>>>;
+export type AnyPart = Part<any>;
 
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   Part<Tools>,
   TrajectoryError.TrajectoryError
 >;
+export type AnyPartStream = PartStream<Record<string, never>>;
 
 /**
  * A trajectory represents a sequence of turns in a conversation, where each turn consists of a prompt and the corresponding response.
  */
 export type Trajectory<Tools extends Record<string, Tool.Any>> = PartStream<Tools> &
   Readonly<{ toolkit: Toolkit.Toolkit<Tools>; metadata: Metadata }>;
-
 export type Any = Trajectory<Record<string, never>>;
-
 export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError.TrajectoryError>;
 
 export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(

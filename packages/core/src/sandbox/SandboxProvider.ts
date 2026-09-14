@@ -16,12 +16,6 @@ export class BuildUnsupported extends Schema.TaggedError<BuildUnsupported>(
  */
 export type ProviderError = BuildUnsupported;
 
-export type RunSandboxOptions = Readonly<{
-  snapshot: Snapshot.Snapshot;
-  resources: Resources.Resources;
-  cache: boolean;
-}>;
-
 export type Provider = Readonly<{
   /**
    * Acquire a snapshot from a template, which can be used to run a sandbox or derive a new snapshot.
@@ -57,18 +51,13 @@ export type Provider = Readonly<{
   /**
    * Run a sandbox with the given snapshot.
    */
-  runSandbox(
-    options: RunSandboxOptions,
-  ): Effect.Effect<Sandbox.Sandbox["Service"], ProviderError, Scope.Scope>;
-
-  /**
-   * Create a layer that provides a sandbox.
-   */
-  sandboxLayer(
-    options: RunSandboxOptions,
-  ): Layer.Layer<Sandbox.Sandbox, ProviderError, Scope.Scope>;
+  runSandbox(options: {
+    snapshot: Snapshot.Snapshot;
+    resources: Resources.Resources;
+    cache: boolean;
+  }): Effect.Effect<Sandbox.Sandbox["Service"], ProviderError, Scope.Scope>;
 }>;
 
-export class ProviderService extends Context.Service<ProviderService, Provider>()(
+export class SandboxProvider extends Context.Service<SandboxProvider, Provider>()(
   "sandbox/ProviderService",
 ) {}

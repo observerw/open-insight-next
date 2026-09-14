@@ -1,8 +1,6 @@
 import { Data, Effect, FileSystem, Path, Schema } from "effect";
 import { cmd, Instruction, Instructions } from "./Instruction.ts";
 
-const defaultCommand = cmd("sleep", "infinity");
-
 /** A template described with the provider-independent instruction set. */
 export class InstructionsTemplate extends Schema.TaggedClass<InstructionsTemplate>()(
   "Instructions",
@@ -28,7 +26,12 @@ export class ContainerfileTemplate extends Schema.TaggedClass<ContainerfileTempl
 export const Template = Schema.Union([InstructionsTemplate, ContainerfileTemplate]);
 export type Template = Schema.Schema.Type<typeof Template>;
 
-export const SNAPSHOT_NAME = "open-insight-snapshot";
+export const fromImage = (image: string): InstructionsTemplate =>
+  new InstructionsTemplate({ image, context: "/tmp", instructions: [defaultCommand] });
+
+export const Scratch = fromImage("scratch");
+export const Alpine = fromImage("alpine:latest");
+export const Debian = fromImage("debian:latest");
 
 const encodeInstruction = (instruction: Instruction): string =>
   Instruction.match(instruction, {
@@ -61,10 +64,7 @@ const encodeInstruction = (instruction: Instruction): string =>
 export const encode = ({
   image,
   instructions,
-}: Readonly<{
-  image: string;
-  instructions: Instructions;
-}>): string => {
+}: Readonly<{ image: string; instructions: Instructions }>): string => {
   const lines = [`FROM ${image}`, ...instructions.map(encodeInstruction)];
 
   return `${lines.join("\n")}\n`;
@@ -84,6 +84,7 @@ export const writeInstructions = Effect.fn(function* (template: InstructionsTemp
   return containerfilePath;
 });
 
+const defaultCommand = cmd("sleep", "infinity");
 export const build = Effect.fn(function* ({
   filePath,
   context,

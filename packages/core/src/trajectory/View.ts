@@ -61,7 +61,7 @@ export const finishPart: Sink.Sink<
 
 export const metadataPart: Sink.Sink<
   Option.Option<Response.ResponseMetadataPart>,
-  Trajectory.Part<any>
+  Trajectory.AnyPart
 > = Sink.reduce(
   () => Option.none<Response.ResponseMetadataPart>(),
   (state, part) =>
@@ -71,7 +71,7 @@ export const metadataPart: Sink.Sink<
 );
 
 export const usage = (
-  trajectory: Trajectory.PartStream<any>,
+  trajectory: Trajectory.AnyPartStream,
 ): Effect.Effect<Option.Option<Response.Usage>, TrajectoryError> =>
   trajectory.pipe(
     Stream.run(finishPart),
@@ -79,7 +79,7 @@ export const usage = (
   );
 
 export const finishReason = (
-  trajectory: Trajectory.PartStream<any>,
+  trajectory: Trajectory.AnyPartStream,
 ): Effect.Effect<Option.Option<Response.FinishReason>, TrajectoryError> =>
   trajectory.pipe(
     Stream.run(finishPart),
@@ -87,6 +87,6 @@ export const finishReason = (
   );
 
 export const responseMetadataParts = (
-  trajectory: Trajectory.PartStream<any>,
+  trajectory: Trajectory.AnyPartStream,
 ): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
   trajectory.pipe(responses).pipe(Stream.filter((part) => part.type === "response-metadata"));

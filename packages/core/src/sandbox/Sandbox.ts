@@ -15,6 +15,7 @@ export class Sandbox extends Context.Service<
     network: Network["Service"];
   }
 >()("Sandbox") {}
+export type SandboxService = Sandbox["Service"];
 
 export const layerFrom = (snapshot: Snapshot.Snapshot) =>
   Layer.effect(

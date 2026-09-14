@@ -1,6 +1,6 @@
 import type { ContentBlock, SessionUpdate, ToolKind } from "@agentclientprotocol/sdk";
 import { Encoding, Result, Schema, Stream } from "effect";
-import { Response } from "effect/unstable/ai";
+import * as Response from "#/response/index.ts";
 
 type SegmentKind = "text" | "reasoning";
 

@@ -86,10 +86,9 @@ export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkit
             Effect.fn(function* (response) {
               const encoded = yield* encode(response.response);
               const decoded = yield* decode(encoded);
-
               return trajectoryPart.make({
-                uuid: response.uuid,
                 _tag: "Response",
+                uuid: response.uuid,
                 response: decoded,
               });
             }),

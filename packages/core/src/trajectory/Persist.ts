@@ -12,7 +12,7 @@ export class Persist extends Context.Service<
       path: string,
       trajectory: Trajectory.Trajectory<Tools>,
     ) => Effect.Effect<void, TrajectoryError, Tool.ResultEncodingServices<Tools[keyof Tools]>>;
-    readonly load: (path: string) => Effect.Effect<Trajectory.Trajectory<{}>, TrajectoryError>;
+    readonly load: (path: string) => Effect.Effect<Trajectory.Any, TrajectoryError>;
   }
 >()("open-insight/TrajectoryPersist") {
   static readonly layer = Layer.effect(
@@ -20,9 +20,10 @@ export class Persist extends Context.Service<
     Effect.gen(function* () {
       const fs = yield* FileSystem;
 
-      const save: Persist["Service"]["save"] = Effect.fn(function* <
-        Tools extends Record<string, Tool.Any>,
-      >(path: string, trajectory: Trajectory.Trajectory<Tools>) {
+      const save = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(
+        path: string,
+        trajectory: Trajectory.Trajectory<Tools>,
+      ) {
         const encoded = Trajectory.encode(trajectory);
         const parts = yield* Stream.runCollect(encoded);
 
@@ -38,33 +39,29 @@ export class Persist extends Context.Service<
         yield* fs
           .writeFileString(path, content)
           .pipe(Effect.mapError((cause) => persistenceError("save", path, cause)));
-      });
+      }) satisfies Persist["Service"]["save"];
 
       const load = Effect.fn(function* (path: string) {
         const content = yield* fs
           .readFileString(path)
           .pipe(Effect.mapError((cause) => persistenceError("load", path, cause)));
 
-        const document = yield* Effect.try({
-          try: () => JSON.parse(content),
-          catch: decodeError,
-        });
+        const document = yield* Effect.try({ try: () => JSON.parse(content), catch: decodeError });
 
-        const metadata = yield* Schema.decodeUnknownEffect(Trajectory.Metadata)(
-          document.metadata,
-        ).pipe(Effect.mapError(decodeError));
-
-        const parts = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown))(
-          document.parts,
-        ).pipe(
-          Effect.mapError(decodeError),
-          Effect.map((parts) => parts as PartEncoded[]),
-        );
+        const [metadata, parts] = yield* Effect.all([
+          Schema.decodeUnknownEffect(Trajectory.Metadata)(document.metadata).pipe(
+            Effect.mapError(decodeError),
+          ),
+          Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown))(document.parts).pipe(
+            Effect.mapError(decodeError),
+            Effect.map((parts) => parts as PartEncoded[]),
+          ),
+        ]);
 
         const trajectory = yield* Trajectory.decode(Stream.fromIterable(parts));
 
         return Trajectory.metadata(trajectory, metadata);
-      });
+      }) satisfies Persist["Service"]["load"];
 
       return { save, load };
     }),

@@ -17,17 +17,16 @@ export type AgentSession<Tools extends Record<string, Tool.Any> = Record<string,
     prompt(prompt: Prompt.Prompt): Stream.Stream<Response.StreamPartView<Tools>, HarnessError>;
   }>;
 
-const makeAgentSession = <Tools extends Record<string, Tool.Any>>(agent: Agent.Agent) => {
-  return {
+const makeAgentSession = <Tools extends Record<string, Tool.Any>>(agent: Agent.Agent) =>
+  ({
     trajectory: agent.trajectory,
     prompt: (prompt) => agent.prompt(prompt),
-  } satisfies AgentSession<Tools>;
-};
+  }) satisfies AgentSession<Tools>;
 
 export type SandboxSession<Tools extends Record<string, Tool.Any> = Record<string, never>> =
   Readonly<{
     sandbox: Sandbox.Sandbox["Service"];
-    runAgent: Effect.Effect<AgentSession<Tools>, HarnessError, Scope.Scope>;
+    runAgent: () => Effect.Effect<AgentSession<Tools>, HarnessError, Scope.Scope>;
   }>;
 
 export type SandboxSessionConfig = Readonly<{
@@ -74,12 +73,12 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
 ): Effect.fn.Return<
   Harness<ID, Tools>,
   HarnessError,
-  Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider.ProviderService
+  Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider.SandboxProvider
 > {
   const metadata = yield* Schema.decodeEffect(Metadata)({ id, ...options });
 
   const agentProvider = yield* Agent.ProviderService;
-  const sandboxProvider = yield* Sandbox.SandboxProvider.ProviderService;
+  const sandboxProvider = yield* Sandbox.SandboxProvider.SandboxProvider;
 
   const acquireSnapshot = (template: Snapshot.Template) =>
     sandboxProvider.acquireSnapshot({ template, cache: true });
@@ -109,9 +108,10 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
 
     const sandbox = yield* sandboxProvider.runSandbox({ snapshot, resources, cache });
 
-    const runAgent = Effect.gen(function* () {
-      const agentSession = yield* agentProvider.runSession(sandbox);
-
+    const runAgent = Effect.fn(function* () {
+      const agentSession = yield* agentProvider
+        .runSession()
+        .pipe(Effect.provideService(Sandbox.Sandbox, sandbox));
       return makeAgentSession(agentSession);
     }) satisfies SandboxSession<Tools>["runAgent"];
 
