@@ -1,5 +1,5 @@
 import * as Task from "#/task/index.ts";
-import { Utils } from "@open-insight/core";
+import { IndexByKey } from "@open-insight/core/Types";
 import { Data, Schema } from "effect";
 
 export class Metadata extends Schema.Class<Metadata>("BenchMetadata")({
@@ -23,7 +23,7 @@ export const fromArray = <ID extends string, Tasks extends ReadonlyArray<Task.An
   id: ID,
   tasks: Tasks,
   options: Options = {},
-): Bench<ID, Utils.IndexByKey<Tasks, "id">> => {
+): Bench<ID, IndexByKey<Tasks, "id">> => {
   const metadata = Schema.decodeSync(Metadata)({ id, ...options });
   return new Bench({
     id,
@@ -36,4 +36,4 @@ export const make = <ID extends string, Tasks extends ReadonlyArray<Task.Any>>(
   id: ID,
   options: Options,
   ...tasks: Tasks
-): Bench<ID, Utils.IndexByKey<Tasks, "id">> => fromArray(id, tasks, options);
+): Bench<ID, IndexByKey<Tasks, "id">> => fromArray(id, tasks, options);

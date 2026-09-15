@@ -11,6 +11,7 @@ export default defineConfig({
         ".": "./src/index.ts",
         "./*": "./src/*.ts",
         "./internal/*": null,
+        "./*/index": null,
       },
       exclude: ["cli", "**\/*.test", /internal/],
     },
@@ -22,4 +23,7 @@ export default defineConfig({
     },
   },
   fmt: {},
+  test: {
+    include: ["tests/**/*.test.ts"],
+  },
 });

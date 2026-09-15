@@ -23,14 +23,16 @@
     ".": "./src/index.ts",
     "./package.json": "./package.json",
     "./*": "./src/*.ts",
-    "./internal/*": null
+    "./internal/*": null,
+    "./*/index": null
   },
   "publishConfig": {
     "exports": {
       ".": "./src/index.ts",
       "./package.json": "./package.json",
       "./*": "./src/*.ts",
-      "./internal/*": null
+      "./internal/*": null,
+      "./*/index": null
     },
     "access": "public"
   },
