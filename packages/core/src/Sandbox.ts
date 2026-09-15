@@ -375,18 +375,11 @@ export class Process extends Context.Service<
   }
 >()("effect/process/ChildProcessSpawner") {}
 
-type PlatformSpawn = (
-  command: Command,
-) => Effect.Effect<ProcessResult, import("effect").PlatformError.PlatformError>;
-
-const formatCommand = ({ command, args }: Command): string => [command, ...args].join(" ");
-
-export const makeProcess = (spawn: PlatformSpawn): Process["Service"] => {
-  const spawnSandbox = (command: Command) =>
-    spawn(command).pipe(Effect.mapError(operationFailed("spawn", formatCommand(command))));
-
+export const makeProcess = (
+  spawn: (command: Command) => Effect.Effect<ProcessResult, SandboxError>,
+): Process["Service"] => {
   const string: Process["Service"]["string"] = (command) =>
-    spawnSandbox(command).pipe(Effect.map(({ stdout }) => new TextDecoder().decode(stdout)));
+    spawn(command).pipe(Effect.map(({ stdout }) => new TextDecoder().decode(stdout)));
 
   function $(
     strings: TemplateStringsArray,
@@ -411,11 +404,11 @@ export const makeProcess = (spawn: PlatformSpawn): Process["Service"] => {
   }
 
   return Process.of({
-    spawn: spawnSandbox,
+    spawn,
     $,
     string,
     lines: (command) => string(command).pipe(Effect.map((stdout) => stdout.split("\n"))),
-    exitCode: (command) => Effect.map(spawnSandbox(command), ({ exitCode }) => exitCode),
+    exitCode: (command) => Effect.map(spawn(command), ({ exitCode }) => exitCode),
   });
 };
 
@@ -450,11 +443,13 @@ export type Sandbox = Readonly<{
   pty: Terminal["Service"];
   network: Network["Service"];
 }>;
+
 export const makeSandbox = Effect.fn(function* (snapshot: Snapshot.Snapshot) {
   const fs = yield* FileSystem;
   const process = yield* Process;
   const pty = yield* Terminal;
   const network = yield* Network;
+
   return { snapshot, fs, process, pty, network };
 });
 
@@ -470,6 +465,7 @@ export class BuildUnsupported extends Schema.TaggedError<BuildUnsupported>(
  * and callers have a distinct recovery or reporting action.
  */
 export const SandboxProviderError = Schema.Union([BuildUnsupported]);
+
 export type SandboxProviderError = Schema.Schema.Type<typeof SandboxProviderError>;
 
 export class SandboxProvider extends Context.Service<

@@ -23,6 +23,11 @@ export class LoadFailed extends Schema.TaggedError<LoadFailed>(
 
 export type NdjsonStoreError = SaveFailed | LoadFailed;
 
+export interface LoadOptions {
+  readonly offset?: number;
+  readonly limit?: number;
+}
+
 export class NdjsonStore extends Context.Service<
   NdjsonStore,
   {
@@ -34,7 +39,10 @@ export class NdjsonStore extends Context.Service<
     ) => Effect.Effect<void, E | SaveFailed, R | S["EncodingServices"]>;
     readonly load: <S extends Schema.Constraint>(
       schema: S,
-    ) => (path: string) => Stream.Stream<S["Type"], LoadFailed, S["DecodingServices"]>;
+    ) => (
+      path: string,
+      options?: LoadOptions,
+    ) => Stream.Stream<S["Type"], LoadFailed, S["DecodingServices"]>;
   }
 >()("open-insight/core/NdjsonStore") {
   static readonly layer = Layer.effect(
@@ -56,9 +64,11 @@ export class NdjsonStore extends Context.Service<
       const load: NdjsonStore["Service"]["load"] = (schema) => {
         const decoder = Ndjson.decodeSchema(schema);
 
-        return (path) =>
+        return (path, options) =>
           fs.stream(path).pipe(
             Stream.pipeThroughChannel(decoder({ ignoreEmptyLines: true })),
+            Stream.drop(options?.offset ?? 0),
+            options?.limit === undefined ? (stream) => stream : Stream.take(options.limit),
             Stream.mapError((cause) => new LoadFailed({ cause })),
           );
       };

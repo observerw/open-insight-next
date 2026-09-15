@@ -58,6 +58,23 @@ it.effect("ignores empty lines while loading", () => {
   }).pipe(Effect.provide(provideStore(memory.layer)));
 });
 
+it.effect("loads records with offset and limit", () => {
+  const memory = inMemoryFileSystem();
+  memory.files.set("values.ndjson", [new TextEncoder().encode("1\n\n2\n3\n4\n")]);
+
+  return Effect.gen(function* () {
+    const store = yield* NdjsonStore.NdjsonStore;
+    const load = store.load(Schema.Number);
+
+    assert.deepStrictEqual(
+      yield* Stream.runCollect(load("values.ndjson", { offset: 1, limit: 2 })),
+      [2, 3],
+    );
+    assert.deepStrictEqual(yield* Stream.runCollect(load("values.ndjson", { offset: 2 })), [3, 4]);
+    assert.deepStrictEqual(yield* Stream.runCollect(load("values.ndjson", { limit: 0 })), []);
+  }).pipe(Effect.provide(provideStore(memory.layer)));
+});
+
 it.effect("classifies file-system write failures as SaveFailed", () =>
   Effect.gen(function* () {
     const store = yield* NdjsonStore.NdjsonStore;

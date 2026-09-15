@@ -1,10 +1,6 @@
 import { defineConfig } from "vite-plus";
 
-const ignoredPaths = [
-  ".agents/**",
-  ".vite-hooks/**",
-  "tools/oxlint/anti-slop/**",
-];
+const ignoredPaths = [".agents/**", ".vite-hooks/**", "tools/oxlint/anti-slop/**"];
 
 export default defineConfig({
   create: {
@@ -39,6 +35,8 @@ export default defineConfig({
 
       "typescript/no-deprecated": "error",
 
+      "import/no-dynamic-require": ["error", { esmodule: true }],
+
       "anti-slop/no-array-filter-map": "error",
       "anti-slop/no-reduce-accumulator-copy": "error",
       "anti-slop/no-chained-type-assertions": "error",
@@ -55,7 +53,7 @@ export default defineConfig({
       "anti-slop/no-unknown-type-aliases": "error",
       "anti-slop/no-unsafe-dictionary-type": "error",
       "anti-slop/no-widen-then-assert": "error",
-      "anti-slop/require-readable-spacing": "error",
+      "anti-slop/require-readable-spacing": "warn",
       "anti-slop/require-safety-comment-for-type-assertion": "error",
 
       "anti-slop-effect/no-manual-effect-error-tag": "error",

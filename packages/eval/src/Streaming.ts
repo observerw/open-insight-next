@@ -20,43 +20,41 @@ import {
 import * as Eval from "#/Eval.ts";
 import * as Event from "#/Event.ts";
 import * as Task from "#/Task.ts";
-import { Toolkit } from "effect/unstable/ai";
 
-type TrajOptions = Readonly<{
+const makeSessionStream = Effect.fn(function* ({
+  promptSession,
+  agentSession,
+  sandbox,
+}: {
   agentSession: Harness.AgentSession;
   promptSession: Prompt.Session;
   sandbox: Sandbox.Sandbox;
-}>;
-const makeTrajectory = Effect.fn(function* ({ promptSession, agentSession, sandbox }: TrajOptions) {
-  const stream = Stream.callback<Trajectory.AnyPart, EvalError>(
+}) {
+  return Stream.callback<Trajectory.StreamSessionTurn<Record<string, never>, Harness.HarnessError>>(
     Effect.fn(function* (queue) {
       let current: Option.Option<Prompt.Prompt> = Option.some(promptSession.init);
 
       while (Option.isSome(current)) {
-        const trajDeferred = yield* Deferred.make<Prompt.Prompt>();
-
-        const response = yield* agentSession
-          .prompt(current.value)
+        const prompt = current.value;
+        const trajectory = yield* Deferred.make<Prompt.Prompt>();
+        const response = agentSession
+          .prompt(prompt)
           .pipe(
             Stream.onEnd(
               Ref.get(agentSession.trajectory).pipe(
-                Effect.flatMap((traj) => Deferred.succeed(trajDeferred, traj)),
+                Effect.flatMap((prompt) => Deferred.succeed(trajectory, prompt)),
               ),
             ),
-          )
-          .pipe(Stream.runForEach((part) => Queue.offer(queue, Trajectory.responsePart(part))));
-        // .pipe(Stream.share({ capacity: "unbounded" }));
+          );
 
-        // yield* Queue.offer(queue, { prompt: current.value, response });
+        yield* Queue.offer(queue, { prompt, response });
 
-        current = yield* Deferred.await(trajDeferred).pipe(
+        current = yield* Deferred.await(trajectory).pipe(
           Effect.flatMap((prompt) => promptSession.next(prompt, sandbox)),
         );
       }
     }),
   );
-
-  return Trajectory.make(stream, Toolkit.empty);
 });
 
 type SessionOptions = Readonly<{

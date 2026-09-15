@@ -136,6 +136,27 @@ export type ToolResultPartsView<Tools extends Record<string, Tool.Any>> =
   | ToolResultParts<Tools>
   | AnyToolResultPart;
 
+/**
+ * Union of toolkit-specific tool call and result parts.
+ *
+ * @category utility types
+ */
+export type ToolPart<
+  Tools extends Record<string, Tool.Any>,
+  EncodedParameters extends ToolParametersMode = "decoded",
+> = ToolCallParts<Tools, EncodedParameters> | ToolResultParts<Tools>;
+
+/**
+ * Union of tool call and result parts that also accepts tools outside the
+ * provided toolkit.
+ *
+ * @category utility types
+ */
+export type ToolPartView<
+  Tools extends Record<string, Tool.Any>,
+  EncodedParameters extends ToolParametersMode = "decoded",
+> = ToolCallPartsView<Tools, EncodedParameters> | ToolResultPartsView<Tools>;
+
 // =============================================================================
 // Tool Call Part
 // =============================================================================
@@ -254,6 +275,20 @@ type RuntimeAnyToolPart = RuntimeAnyToolCallPart | RuntimeAnyToolResultPart;
 export const isAnyToolPart = (u: unknown): u is RuntimeAnyToolPart =>
   Predicate.hasProperty(u, AnyToolCallPartTypeId) ||
   Predicate.hasProperty(u, AnyToolResultPartTypeId);
+
+/**
+ * Type guard to check if a tool part belongs to the provided toolkit.
+ *
+ * @category guards
+ */
+export const isToolPart = <
+  Tools extends Record<string, Tool.Any>,
+  EncodedParameters extends ToolParametersMode = "decoded",
+>(
+  part: ToolPartView<Tools, EncodedParameters>,
+): part is ToolPart<Tools, EncodedParameters> =>
+  !Predicate.hasProperty(part, AnyToolCallPartTypeId) &&
+  !Predicate.hasProperty(part, AnyToolResultPartTypeId);
 
 /**
  * Constructs a tool result part whose name and result are unrestricted.

@@ -1,8 +1,9 @@
-import { Effect, Function, Match, Option, Result, Schema, Sink, Stream, Tuple } from "effect";
+import { Effect, Function, Match, Option, Result, Schema, Sink, Stream } from "effect";
 import { type Tool, Toolkit } from "effect/unstable/ai";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
+import { fold } from "#/internal/fold.ts";
 
 export class EncodeError extends Schema.TaggedError<EncodeError>(
   "open-insight/trajectory/EncodeError",
@@ -175,6 +176,111 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
   return Object.assign(parts, { toolkit }) as Trajectory<Toolkit.MergedTools<Toolkits>>;
 });
 
+export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkits: Toolkits) =>
+  Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
+    const merged = Toolkit.merge(trajectory.toolkit, ...toolkits);
+
+    const sourceSchema = Response.PartView(trajectory.toolkit);
+    const partSchema = Response.PartView(merged);
+    const trajectoryPart = Part(merged);
+    const encode = Schema.encodeEffect(sourceSchema);
+    const decode = Schema.decodeEffect(partSchema);
+    const context = yield* Effect.context<
+      typeof sourceSchema.EncodingServices | typeof partSchema.DecodingServices
+    >();
+
+    const parts = trajectory.pipe(
+      Stream.mapEffect((part) =>
+        Match.value(part).pipe(
+          Match.tag("Prompt", (prompt) => Effect.succeed(trajectoryPart.make(prompt))),
+          Match.tag(
+            "Response",
+            Effect.fn(function* (response) {
+              const encoded = yield* encode(response.response).pipe(
+                Effect.mapError(TrajectoryError.decode),
+              );
+              const decoded = yield* decode(encoded).pipe(Effect.mapError(TrajectoryError.decode));
+              return trajectoryPart.make({ ...response, response: decoded });
+            }),
+          ),
+          Match.exhaustive,
+        ),
+      ),
+      Stream.provideContext(context),
+    );
+
+    return Object.assign(parts, { toolkit: merged, metadata: trajectory.metadata });
+  });
+
+export type ToolTurn<Tools extends Record<string, Tool.Any>> = {
+  [Name in keyof Tools]: Name extends string
+    ? Readonly<{
+        call: Extract<Response.ToolCallParts<Tools>, { name: Name }>;
+        result: Extract<Response.ToolResultParts<Tools>, { name: Name }>;
+      }>
+    : never;
+}[keyof Tools];
+
+export const toolTurn = <Tools extends Record<string, Tool.Any>>(
+  call: Response.ToolCallParts<Tools>,
+  result: Response.ToolResultParts<Tools>,
+): ToolTurn<Tools> | undefined => {
+  if (call.name !== result.name) {
+    return undefined;
+  }
+
+  // SAFETY: Equal tool names correlate both union members to the same toolkit entry.
+  return { call, result } as ToolTurn<Tools>;
+};
+
+export const toolTurns = <Tools extends Record<string, Tool.Any>>(
+  trajectory: Trajectory<Tools>,
+): Stream.Stream<ToolTurn<Tools>, TrajectoryError> =>
+  toResponses(trajectory).pipe(
+    Stream.mapAccum<
+      Map<string, Response.ToolCallParts<Tools>>,
+      Response.AllPartsView<Tools>,
+      ToolTurn<Tools>
+    >(
+      () => new Map(),
+      (calls, response) => {
+        if (response.type === "tool-call") {
+          if (Response.isToolPart<Tools>(response)) {
+            calls.set(response.id, response);
+          } else {
+            calls.delete(response.id);
+          }
+
+          return [calls, []];
+        }
+
+        if (
+          response.type !== "tool-result" ||
+          response.preliminary ||
+          !Response.isToolPart<Tools>(response)
+        ) {
+          return [calls, []];
+        }
+
+        const call = calls.get(response.id);
+
+        if (call === undefined) {
+          return [calls, []];
+        }
+
+        const turn = toolTurn(call, response);
+
+        if (turn === undefined) {
+          return [calls, []];
+        }
+
+        calls.delete(response.id);
+
+        return [calls, [turn]];
+      },
+    ),
+  );
+
 export const metadata = Function.dual<
   <T extends Any>(metadata: Metadata) => (trajectory: T) => T,
   <T extends Any>(trajectory: T, metadata: Metadata) => T
@@ -186,22 +292,81 @@ export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
   prompt: Prompt.Prompt;
   response: Response.PartView<Tools>[];
 }>;
-
 export type Session<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   SessionTurn<Tools>,
   TrajectoryError
 >;
 
-export const session = <Tools extends Record<string, Tool.Any>>(
+const SessionEnd = Symbol("open-insight/trajectory/SessionEnd");
+export const toSession = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
-): Session<Tools> => {
-  throw new Error("not implemented");
+): Session<Tools> =>
+  trajectory.pipe(
+    Stream.concat(Stream.succeed(SessionEnd)),
+    Stream.mapAccum<
+      SessionTurn<Tools> | undefined,
+      Part<Tools> | typeof SessionEnd,
+      SessionTurn<Tools>
+    >(
+      () => undefined,
+      (turn, part) => {
+        if (part === SessionEnd) {
+          return [undefined, turn === undefined ? [] : [turn]];
+        }
+
+        if (part._tag === "Prompt") {
+          const next = {
+            prompt: Prompt.fromMessages(part.messages),
+            response: [],
+          } satisfies SessionTurn<Tools>;
+
+          return [next, turn === undefined ? [] : [turn]];
+        }
+
+        if (turn === undefined) {
+          return [turn, []];
+        }
+
+        turn.response.push(part.response);
+
+        return [turn, []];
+      },
+    ),
+  );
+
+export type StreamSessionTurn<Tools extends Record<string, Tool.Any>, E> = Readonly<{
+  prompt: Prompt.Prompt;
+  response: Stream.Stream<Response.AllPartsView<Tools>, E>;
+}>;
+export type StreamSession<Tools extends Record<string, Tool.Any>, E> = Stream.Stream<
+  StreamSessionTurn<Tools, E>,
+  TrajectoryError
+>;
+export const fromSession = <Tools extends Record<string, Tool.Any>, E>(
+  session: StreamSession<Tools, E>,
+  toolkit: Toolkit.Toolkit<Tools>,
+): PartStream<Tools> => {
+  const responsePartSchema = ResponsePart(toolkit);
+
+  return session.pipe(
+    Stream.flatMap(({ prompt, response }) =>
+      Stream.succeed(promptPart(prompt)).pipe(
+        Stream.concat(
+          response.pipe(
+            fold,
+            Stream.map((response) => responsePartSchema.make({ response })),
+            Stream.mapError(TrajectoryError.partStream),
+          ),
+        ),
+      ),
+    ),
+  );
 };
 
 export const toPrompt = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Effect.Effect<Prompt.Prompt, TrajectoryError> =>
-  session(trajectory).pipe(
+  toSession(trajectory).pipe(
     Stream.runFold(
       () => Prompt.empty,
       (curr, { prompt, response }) =>
@@ -209,7 +374,7 @@ export const toPrompt = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
-export const responses = <Tools extends Record<string, Tool.Any>>(
+export const toResponses = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Stream.Stream<Response.AllPartsView<Tools>, TrajectoryError> =>
   trajectory.pipe(
@@ -260,4 +425,4 @@ export const finishReason = (
 export const responseMetadataParts = (
   trajectory: AnyPartStream,
 ): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
-  trajectory.pipe(responses).pipe(Stream.filter((part) => part.type === "response-metadata"));
+  trajectory.pipe(toResponses).pipe(Stream.filter((part) => part.type === "response-metadata"));
