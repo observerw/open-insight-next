@@ -23,3 +23,7 @@ export * as Git from "./Git.ts";
 export * as Shell from "./Shell.ts";
 
 export * as Cache from "./Cache.ts";
+
+export * as Metric from "./Metric.ts";
+
+export * as NdjsonStore from "./NdjsonStore.ts";

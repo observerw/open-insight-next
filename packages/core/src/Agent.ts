@@ -31,14 +31,13 @@ export type SnapshotExtension = Readonly<{
   context?: string;
 }>;
 
-export type Provider = Readonly<{
-  snapshotExtension: Option.Option<SnapshotExtension>;
-  runSession(sandbox: Sandbox.Sandbox): Effect.Effect<Agent, AgentError, Scope.Scope>;
-}>;
-
-export class ProviderService extends Context.Service<ProviderService, Provider>()(
-  "agent/AgentService",
-) {}
+export class Provider extends Context.Service<
+  Provider,
+  {
+    snapshotExtension: Option.Option<SnapshotExtension>;
+    runSession(sandbox: Sandbox.Sandbox): Effect.Effect<Agent, AgentError, Scope.Scope>;
+  }
+>()("agent/AgentService") {}
 
 type AgentOptions = Readonly<{
   prompt(prompt: Prompt.Prompt): Stream.Stream<Response.StreamPartView<{}>, AgentError>;
@@ -81,10 +80,10 @@ const makeAgent = Effect.fn("Agent.makeAgent")(function* ({
   return { trajectory, prompt } satisfies Agent;
 });
 
-export const make = ({ snapshotExtension, runSession }: ProviderOptions): Provider => ({
+export const make = ({ snapshotExtension, runSession }: ProviderOptions): Provider["Service"] => ({
   snapshotExtension: Option.fromNullishOr(snapshotExtension),
   runSession: (sandbox) => runSession(sandbox).pipe(Effect.flatMap(makeAgent)),
 });
 
-export const layerFrom = (options: ProviderOptions): Layer.Layer<ProviderService> =>
-  Layer.succeed(ProviderService, make(options));
+export const layerFrom = (options: ProviderOptions): Layer.Layer<Provider> =>
+  Layer.succeed(Provider, make(options));

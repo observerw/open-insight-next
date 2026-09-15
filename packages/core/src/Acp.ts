@@ -14,7 +14,21 @@ import {
   type SessionUpdate,
   type ToolKind,
 } from "@agentclientprotocol/sdk";
-import { Cause, Effect, Encoding, FiberSet, Formatter, Layer, Path, Queue, Ref, Result, Schedule, Schema, Stream } from "effect";
+import {
+  Cause,
+  Effect,
+  Encoding,
+  FiberSet,
+  Formatter,
+  Layer,
+  Path,
+  Queue,
+  Ref,
+  Result,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 import * as Agent from "#/Agent.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
@@ -461,7 +475,7 @@ export const waitForAgentReady = Effect.fn(function* (url: URL, options: Options
 export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
   agentId: string,
   options: Options,
-): Effect.fn.Return<Agent.Provider, Agent.AgentError, Path.Path> {
+): Effect.fn.Return<Agent.Provider["Service"], Agent.AgentError, Path.Path> {
   yield* validateOptions(agentId, options);
 
   const runSession = Effect.fn("Acp.runSession")(function* () {
@@ -557,7 +571,7 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
 });
 
 export const layerFrom = (agentID: string, options: Options) =>
-  Layer.effect(Agent.ProviderService, makeProvider(agentID, options));
+  Layer.effect(Agent.Provider, makeProvider(agentID, options));
 
 type SegmentKind = "text" | "reasoning";
 
@@ -856,7 +870,11 @@ const nextChunkId = (
   ];
 };
 
-const setActiveSegment = (state: HarnessState, kind: SegmentKind, id: string | undefined): HarnessState => ({
+const setActiveSegment = (
+  state: HarnessState,
+  kind: SegmentKind,
+  id: string | undefined,
+): HarnessState => ({
   ...state,
   active: {
     ...state.active,

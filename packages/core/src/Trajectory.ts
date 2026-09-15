@@ -1,8 +1,8 @@
 import { Effect, Function, Match, Option, Result, Schema, Sink, Stream, Tuple } from "effect";
-import { Prompt, type Tool, Toolkit } from "effect/unstable/ai";
+import { type Tool, Toolkit } from "effect/unstable/ai";
+import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
-import * as PromptModule from "#/Prompt.ts";
 
 export class EncodeError extends Schema.TaggedError<EncodeError>(
   "open-insight/trajectory/EncodeError",
@@ -24,8 +24,22 @@ export class PersistenceError extends Schema.TaggedError<PersistenceError>(
   message: Schema.optional(Schema.String),
 }) {}
 
-export const TrajectoryErrorReason = Schema.Union([EncodeError, DecodeError, PersistenceError]);
+export class StreamingError extends Schema.TaggedError<StreamingError>(
+  "open-insight/trajectory/StreamingError",
+)("StreamingError", {
+  cause: Schema.Defect(),
+  message: Schema.optional(Schema.String),
+}) {}
+
+export const TrajectoryErrorReason = Schema.Union([
+  EncodeError,
+  DecodeError,
+  PersistenceError,
+  StreamingError,
+]);
 export type TrajectoryErrorReason = Schema.Schema.Type<typeof TrajectoryErrorReason>;
+
+const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : undefined);
 
 export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(
   "open-insight/trajectory/TrajectoryError",
@@ -35,50 +49,29 @@ export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(
   override get message(): string {
     return this.reason.message ?? this.reason._tag;
   }
+
+  static encode = (cause: unknown) =>
+    new TrajectoryError({ reason: new EncodeError({ message: errorMessage(cause) }) });
+
+  static decode = (cause: unknown) =>
+    new TrajectoryError({ reason: new DecodeError({ message: errorMessage(cause) }) });
+
+  static persistence = (operation: "save" | "load", path: string, cause: unknown) =>
+    new TrajectoryError({
+      reason: new PersistenceError({ operation, path, message: errorMessage(cause) }),
+    });
+
+  static partStream = (cause: unknown) =>
+    new TrajectoryError({
+      reason: new StreamingError({ cause, message: errorMessage(cause) }),
+    });
 }
-
-const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : undefined);
-
-export const encodeError = (cause: unknown) =>
-  new TrajectoryError({
-    reason: new EncodeError({ message: errorMessage(cause) }),
-  });
-
-export const decodeError = (cause: unknown) =>
-  new TrajectoryError({
-    reason: new DecodeError({ message: errorMessage(cause) }),
-  });
-
-export const persistenceError = (operation: "save" | "load", path: string, cause: unknown) =>
-  new TrajectoryError({
-    reason: new PersistenceError({
-      operation,
-      path,
-      message: errorMessage(cause),
-    }),
-  });
 
 export class Metadata extends Schema.Class<Metadata>("Metadata")({
   name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
 }) {}
 export type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
-
-export const PromptPart = Schema.TaggedStruct("Prompt", {
-  messages: Schema.Array(Prompt.Message),
-});
-export type PromptPart = Schema.Schema.Type<typeof PromptPart>;
-export type PromptPartEncoded = Schema.Codec.Encoded<typeof PromptPart>;
-
-export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
-  Schema.TaggedStruct("Response", {
-    response: Response.PartView(toolkit),
-    timestamp: Timestamp,
-  });
-export type ResponsePart<T extends Toolkit.Any> = Schema.Schema.Type<
-  ReturnType<typeof ResponsePart<T>>
->;
-export type ResponsePartEncoded = Schema.Codec.Encoded<ReturnType<typeof ResponsePart<any>>>;
 
 export const PartMetadata = Schema.Struct({
   uuid: Uuid,
@@ -87,15 +80,37 @@ export const PartMetadata = Schema.Struct({
 });
 export type PartMetadata = Schema.Schema.Type<typeof PartMetadata>;
 
+export const PromptPart = Schema.TaggedStruct("Prompt", {
+  messages: Schema.Array(Prompt.Message),
+  ...PartMetadata.fields,
+});
+export type PromptPart = Schema.Schema.Type<typeof PromptPart>;
+export type PromptPartEncoded = Schema.Codec.Encoded<typeof PromptPart>;
+export const promptPart = (prompt: Prompt.Prompt): PromptPart =>
+  PromptPart.make({ messages: prompt.content });
+
+export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
+  Schema.TaggedStruct("Response", {
+    response: Response.PartView(toolkit),
+    timestamp: Timestamp,
+    ...PartMetadata.fields,
+  });
+export type ResponsePart<T extends Toolkit.Any> = Schema.Schema.Type<
+  ReturnType<typeof ResponsePart<T>>
+>;
+export type ResponsePartEncoded = Schema.Codec.Encoded<ReturnType<typeof ResponsePart<any>>>;
+export const AnyResponsePart = ResponsePart(Toolkit.empty);
+export type AnyResponsePart = Schema.Schema.Type<typeof AnyResponsePart>;
+export const responsePart = (response: Response.Part<any>): AnyResponsePart =>
+  AnyResponsePart.make({ response });
+
 export const Part = <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
-  Schema.Union([PromptPart, ResponsePart(toolkit)]).mapMembers(
-    Tuple.map(Schema.fieldsAssign(PartMetadata.fields)),
-  );
+  Schema.Union([PromptPart, ResponsePart(toolkit)]);
 export type Part<Tools extends Record<string, Tool.Any>> = Schema.Schema.Type<
   ReturnType<typeof Part<Tools>>
 >;
 export type PartEncoded = Schema.Codec.Encoded<ReturnType<typeof Part<any>>>;
-export type AnyPart = Part<any>;
+export type AnyPart = PromptPart | AnyResponsePart;
 
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   Part<Tools>,
@@ -107,6 +122,16 @@ export type Trajectory<Tools extends Record<string, Tool.Any>> = PartStream<Tool
   Readonly<{ toolkit: Toolkit.Toolkit<Tools>; metadata: Metadata }>;
 export type Any = Trajectory<Record<string, never>>;
 export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError>;
+
+export const make = <Tools extends Record<string, Tool.Any>, E>(
+  parts: Stream.Stream<Part<Tools>, E>,
+  toolkit: Toolkit.Toolkit<Tools>,
+  metadata: MetadataEncoded = {},
+): Trajectory<Tools> =>
+  Object.assign(parts.pipe(Stream.mapError(TrajectoryError.partStream)), {
+    toolkit,
+    metadata: Schema.decodeSync(Metadata)(metadata),
+  });
 
 export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(
   trajectory: Trajectory<Tools>,
@@ -121,7 +146,10 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
 
   return trajectory.pipe(
     Stream.mapEffect((part) =>
-      encodePart(part).pipe(Effect.mapError(encodeError), Effect.provideContext(encodingContext)),
+      encodePart(part).pipe(
+        Effect.mapError(TrajectoryError.encode),
+        Effect.provideContext(encodingContext),
+      ),
     ),
   );
 }, Stream.unwrap);
@@ -137,7 +165,10 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
 
   const parts = trajectory.pipe(
     Stream.mapEffect((part) =>
-      decodePart(part).pipe(Effect.mapError(decodeError), Effect.provideContext(decodingContext)),
+      decodePart(part).pipe(
+        Effect.mapError(TrajectoryError.decode),
+        Effect.provideContext(decodingContext),
+      ),
     ),
   );
 
@@ -152,7 +183,7 @@ export const metadata = Function.dual<
 );
 
 export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
-  prompt: PromptModule.Prompt;
+  prompt: Prompt.Prompt;
   response: Response.PartView<Tools>[];
 }>;
 
@@ -167,17 +198,14 @@ export const session = <Tools extends Record<string, Tool.Any>>(
   throw new Error("not implemented");
 };
 
-export const prompt = <Tools extends Record<string, Tool.Any>>(
+export const toPrompt = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
-): Effect.Effect<PromptModule.Prompt, TrajectoryError> =>
+): Effect.Effect<Prompt.Prompt, TrajectoryError> =>
   session(trajectory).pipe(
     Stream.runFold(
-      () => PromptModule.empty,
+      () => Prompt.empty,
       (curr, { prompt, response }) =>
-        PromptModule.concat(
-          curr,
-          PromptModule.concat(prompt, PromptModule.fromResponseParts(response)),
-        ),
+        Prompt.concat(curr, Prompt.concat(prompt, Prompt.fromResponseParts(response))),
     ),
   );
 

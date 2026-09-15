@@ -64,11 +64,11 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
 ): Effect.fn.Return<
   Harness<ID, Tools>,
   HarnessError,
-  Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider
+  Scope.Scope | Agent.Provider | Sandbox.SandboxProvider
 > {
   const metadata = yield* Schema.decodeEffect(Metadata)({ id, ...options });
 
-  const agentProvider = yield* Agent.ProviderService;
+  const agentProvider = yield* Agent.Provider;
   const sandboxProvider = yield* Sandbox.SandboxProvider;
 
   const acquireSnapshot = (template: Snapshot.Template) =>
