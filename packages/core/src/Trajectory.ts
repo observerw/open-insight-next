@@ -121,10 +121,7 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
 
   return trajectory.pipe(
     Stream.mapEffect((part) =>
-      encodePart(part).pipe(
-        Effect.mapError(encodeError),
-        Effect.provideContext(encodingContext),
-      ),
+      encodePart(part).pipe(Effect.mapError(encodeError), Effect.provideContext(encodingContext)),
     ),
   );
 }, Stream.unwrap);
@@ -140,10 +137,7 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
 
   const parts = trajectory.pipe(
     Stream.mapEffect((part) =>
-      decodePart(part).pipe(
-        Effect.mapError(decodeError),
-        Effect.provideContext(decodingContext),
-      ),
+      decodePart(part).pipe(Effect.mapError(decodeError), Effect.provideContext(decodingContext)),
     ),
   );
 
@@ -200,10 +194,7 @@ export const responses = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
-export const finishPart: Sink.Sink<
-  Option.Option<Response.FinishPart>,
-  Part<any>
-> = Sink.reduce(
+export const finishPart: Sink.Sink<Option.Option<Response.FinishPart>, Part<any>> = Sink.reduce(
   () => Option.none<Response.FinishPart>(),
   (state, part) =>
     part._tag === "Response" && part.response.type === "finish"

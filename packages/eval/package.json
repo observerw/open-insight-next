@@ -31,6 +31,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
+    "@effect/opentelemetry": "catalog:",
     "@open-insight/core": "workspace:*",
     "chdb": "catalog:",
     "effect": "catalog:"

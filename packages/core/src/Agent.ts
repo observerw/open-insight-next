@@ -33,7 +33,7 @@ export type SnapshotExtension = Readonly<{
 
 export type Provider = Readonly<{
   snapshotExtension: Option.Option<SnapshotExtension>;
-  runSession(): Effect.Effect<Agent, AgentError, Scope.Scope | Sandbox.Sandbox>;
+  runSession(sandbox: Sandbox.Sandbox): Effect.Effect<Agent, AgentError, Scope.Scope>;
 }>;
 
 export class ProviderService extends Context.Service<ProviderService, Provider>()(
@@ -46,7 +46,7 @@ type AgentOptions = Readonly<{
 
 type ProviderOptions = Readonly<{
   snapshotExtension?: SnapshotExtension;
-  runSession(): Effect.Effect<AgentOptions, AgentError, Scope.Scope | Sandbox.Sandbox>;
+  runSession(sandbox: Sandbox.Sandbox): Effect.Effect<AgentOptions, AgentError, Scope.Scope>;
 }>;
 
 const makeAgent = Effect.fn("Agent.makeAgent")(function* ({
@@ -83,7 +83,7 @@ const makeAgent = Effect.fn("Agent.makeAgent")(function* ({
 
 export const make = ({ snapshotExtension, runSession }: ProviderOptions): Provider => ({
   snapshotExtension: Option.fromNullishOr(snapshotExtension),
-  runSession: () => runSession().pipe(Effect.flatMap(makeAgent)),
+  runSession: (sandbox) => runSession(sandbox).pipe(Effect.flatMap(makeAgent)),
 });
 
 export const layerFrom = (options: ProviderOptions): Layer.Layer<ProviderService> =>

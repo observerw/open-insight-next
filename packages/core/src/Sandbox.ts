@@ -1,12 +1,12 @@
-import { Context, Effect, Layer, Schema, type Scope, Sink, Stream } from "effect";
+import { Context, Effect, Schema, type Scope, Sink, Stream } from "effect";
 import type { QuitError, UserInput } from "effect/Terminal";
 import type { Cause, Queue } from "effect";
 import { ChildProcess as CP } from "effect/unstable/process";
 import type { TemplateExpression } from "effect/unstable/process/ChildProcess";
 import type { ExitCode } from "effect/unstable/process/ChildProcessSpawner";
 import { makeScript } from "#/Shell.ts";
-import validator from "validator";
 import type * as Snapshot from "#/Snapshot.ts";
+import { isAllowedHost, isAllowedHostsForMode } from "#/internal/sandbox.ts";
 
 export class ConnectionError extends Schema.TaggedError<ConnectionError>()("ConnectionError", {
   cause: Schema.Defect(),
@@ -67,30 +67,6 @@ export const makeResources = Schema.decodeSync(Resources);
 
 export const providerDefault = makeResources({});
 
-const fqdnOptions = {
-  allow_trailing_dot: true,
-  allow_wildcard: true,
-  require_tld: false,
-};
-
-export const isAllowedHost = (value: string): boolean => {
-  const host = value.trim();
-
-  if (host.length === 0 || host.includes("[") || host.includes("]")) {
-    return false;
-  }
-
-  return validator.isIP(host) || validator.isIPRange(host) || validator.isFQDN(host, fqdnOptions);
-};
-
-const isAllowedHostsForMode = ({
-  mode,
-  allowedHosts,
-}: {
-  readonly mode: string;
-  readonly allowedHosts: ReadonlyArray<unknown>;
-}): boolean => mode === "allowlist" || allowedHosts.length === 0;
-
 export const NetworkPolicyMode = Schema.Union([
   Schema.Literal("public"),
   Schema.Literal("no-network"),
@@ -111,11 +87,7 @@ export type AllowedHost = Schema.Schema.Type<typeof AllowedHost>;
 const PolicyFields = Schema.Struct({
   mode: NetworkPolicyMode,
   allowedHosts: Schema.Array(AllowedHost),
-}).check(
-  Schema.makeFilter(isAllowedHostsForMode, {
-    expected: "allowedHosts to be empty unless mode is allowlist",
-  }),
-);
+}).check(isAllowedHostsForMode);
 
 export class NetworkPolicy extends Schema.Class<NetworkPolicy>("NetworkPolicy")(PolicyFields) {}
 
@@ -471,6 +443,21 @@ export class Network extends Context.Service<
   }
 >()("Network") {}
 
+export type Sandbox = Readonly<{
+  snapshot: Snapshot.Snapshot;
+  fs: FileSystem["Service"];
+  process: Process["Service"];
+  pty: Terminal["Service"];
+  network: Network["Service"];
+}>;
+export const makeSandbox = Effect.fn(function* (snapshot: Snapshot.Snapshot) {
+  const fs = yield* FileSystem;
+  const process = yield* Process;
+  const pty = yield* Terminal;
+  const network = yield* Network;
+  return { snapshot, fs, process, pty, network };
+});
+
 /** The provider cannot build an image from the requested Containerfile. */
 export class BuildUnsupported extends Schema.TaggedError<BuildUnsupported>(
   "open-insight/sandbox/SandboxProvider/BuildUnsupported",
@@ -482,75 +469,50 @@ export class BuildUnsupported extends Schema.TaggedError<BuildUnsupported>(
  * Add a new tagged error here only when the provider contract can classify it
  * and callers have a distinct recovery or reporting action.
  */
-export type ProviderError = BuildUnsupported;
+export const SandboxProviderError = Schema.Union([BuildUnsupported]);
+export type SandboxProviderError = Schema.Schema.Type<typeof SandboxProviderError>;
 
-export type Provider = Readonly<{
-  /**
-   * Acquire a snapshot from a template, which can be used to run a sandbox or derive a new snapshot.
-   *
-   * The snapshot refers to a template that is guaranteed to exist in the provider's storage during the scope.
-   *
-   * Providers that cannot build an image from a local Dockerfile or Containerfile must fail a
-   * `Containerfile` template with `BuildUnsupported`.
-   *
-   * @argument cache - If false, the provider will not cache the snapshot and will remove it from storage when the scope ends.
-   */
-  acquireSnapshot(
-    options: Readonly<{
-      template: Snapshot.Template;
-      cache?: boolean;
-    }>,
-  ): Effect.Effect<Snapshot.Snapshot, ProviderError, Scope.Scope>;
-
-  /**
-   * Derive a new snapshot from an existing snapshot with a set of instructions.
-   *
-   * The derived one is directly built from the given snapshot.
-   */
-  deriveSnapshot(
-    options: Readonly<{
-      snapshot: Snapshot.Snapshot;
-      instructions: Snapshot.Instructions;
-      context: string;
-      cache?: boolean;
-    }>,
-  ): Effect.Effect<Snapshot.Snapshot, ProviderError, Scope.Scope>;
-
-  /**
-   * Run a sandbox with the given snapshot.
-   */
-  runSandbox(options: {
-    snapshot: Snapshot.Snapshot;
-    resources: Resources;
-    cache?: boolean;
-  }): Effect.Effect<Sandbox["Service"], ProviderError, Scope.Scope>;
-}>;
-
-export class SandboxProvider extends Context.Service<SandboxProvider, Provider>()(
-  "sandbox/ProviderService",
-) {}
-
-export class Sandbox extends Context.Service<
-  Sandbox,
+export class SandboxProvider extends Context.Service<
+  SandboxProvider,
   {
-    snapshot: Snapshot.Snapshot;
-    fs: FileSystem["Service"];
-    process: Process["Service"];
-    pty: Terminal["Service"];
-    network: Network["Service"];
+    /**
+     * Acquire a snapshot from a template, which can be used to run a sandbox or derive a new snapshot.
+     *
+     * The snapshot refers to a template that is guaranteed to exist in the provider's storage during the scope.
+     *
+     * Providers that cannot build an image from a local Dockerfile or Containerfile must fail a
+     * `Containerfile` template with `BuildUnsupported`.
+     *
+     * @argument cache - If false, the provider will not cache the snapshot and will remove it from storage when the scope ends.
+     */
+    acquireSnapshot(
+      options: Readonly<{
+        template: Snapshot.Template;
+        cache?: boolean;
+      }>,
+    ): Effect.Effect<Snapshot.Snapshot, SandboxProviderError, Scope.Scope>;
+
+    /**
+     * Derive a new snapshot from an existing snapshot with a set of instructions.
+     *
+     * The derived one is directly built from the given snapshot.
+     */
+    deriveSnapshot(
+      options: Readonly<{
+        snapshot: Snapshot.Snapshot;
+        instructions: Snapshot.Instructions;
+        context: string;
+        cache?: boolean;
+      }>,
+    ): Effect.Effect<Snapshot.Snapshot, SandboxProviderError, Scope.Scope>;
+
+    /**
+     * Run a sandbox with the given snapshot.
+     */
+    runSandbox(options: {
+      snapshot: Snapshot.Snapshot;
+      resources: Resources;
+      cache?: boolean;
+    }): Effect.Effect<Sandbox, SandboxProviderError, Scope.Scope>;
   }
->()("Sandbox") {}
-export type SandboxService = Sandbox["Service"];
-
-export const layerFrom = (snapshot: Snapshot.Snapshot) =>
-  Layer.effect(
-    Sandbox,
-    Effect.gen(function* () {
-      const fs = yield* FileSystem;
-      const process = yield* Process;
-      const pty = yield* Terminal;
-      const network = yield* Network;
-
-      return { snapshot, fs, process, pty, network };
-    }),
-  );
+>()("sandbox/ProviderService") {}

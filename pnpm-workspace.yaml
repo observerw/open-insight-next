@@ -8,6 +8,7 @@ catalogMode: prefer
 
 catalog:
   '@agentclientprotocol/sdk': ^1.4.0
+  '@effect/opentelemetry': 4.0.0-rc.115
   "@oxlint/plugins": 1.79.0
   "@types/node": ^24
   "@types/picomatch": ^4.0.3

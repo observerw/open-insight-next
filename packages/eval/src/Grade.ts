@@ -1,13 +1,15 @@
 import { Prompt, Sandbox, Snapshot } from "@open-insight/core";
 import { Data, Effect, Equal, Match, Schema, Scope } from "effect";
 
-export const GradeErrorReason = Schema.Union([Sandbox.SandboxError]);
+export const GradeErrorReason = Schema.Union([Sandbox.SandboxError, Sandbox.SandboxProviderError]);
 export type GradeErrorReason = Schema.Schema.Type<typeof GradeErrorReason>;
 
 export class GradeError extends Schema.TaggedError<GradeError>("GradeError")("GradeError", {
   reason: GradeErrorReason,
 }) {
   static sandbox = (error: Sandbox.SandboxError) => new GradeError({ reason: error });
+  static sandboxProvider = (error: Sandbox.SandboxProviderError) =>
+    new GradeError({ reason: error });
 }
 
 export class Retry extends Data.TaggedError("Retry")<{
@@ -17,7 +19,7 @@ export class Retry extends Data.TaggedError("Retry")<{
 }> {}
 
 type EmbedExec<Result extends Schema.Constraint> = (
-  ctx: Sandbox.SandboxService,
+  ctx: Sandbox.Sandbox,
 ) => Effect.Effect<Result["Type"], GradeError | Retry>;
 export type EmbedTemplate<Result extends Schema.Constraint> = Readonly<{
   exec: EmbedExec<Result>;
@@ -26,10 +28,10 @@ export type EmbedTemplate<Result extends Schema.Constraint> = Readonly<{
 export type SandboxScope = "per-task" | "per-trail";
 
 type SidecarExec<Result extends Schema.Constraint> = (
-  ctx: Sandbox.SandboxService &
+  ctx: Sandbox.Sandbox &
     Readonly<{
       /** The sandbox in which the agent performed the task. */
-      agent: Sandbox.SandboxService;
+      agent: Sandbox.Sandbox;
     }>,
 ) => Effect.Effect<Result["Type"], GradeError | Retry>;
 export type SidecarTemplate<Result extends Schema.Constraint = any> = Readonly<{
@@ -77,7 +79,7 @@ export type GradeSession<Result extends Schema.Constraint> = Effect.Effect<
 >;
 export type Grader<Result extends Schema.Constraint> = Readonly<{
   runSession(
-    agentSbx: Sandbox.SandboxService,
+    agentSbx: Sandbox.Sandbox,
   ): Effect.Effect<GradeSession<Result>, GradeError, Scope.Scope>;
 }>;
 
@@ -102,7 +104,9 @@ export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Cons
       });
       return {
         runSession: Effect.fn(function* (agentSbx) {
-          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources });
+          const gradeSbx = yield* sbxProvider
+            .runSandbox({ snapshot, resources })
+            .pipe(Effect.mapError(GradeError.sandboxProvider));
           return exec(Object.assign(gradeSbx, { agent: agentSbx }));
         }),
       } satisfies Grader<Result>;
@@ -112,8 +116,12 @@ export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Cons
 
       return {
         runSession: Effect.fn(function* (agentSbx) {
-          const snapshot = yield* sbxProvider.acquireSnapshot({ template: snapshotTemplate });
-          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources });
+          const snapshot = yield* sbxProvider
+            .acquireSnapshot({ template: snapshotTemplate })
+            .pipe(Effect.mapError(GradeError.sandboxProvider));
+          const gradeSbx = yield* sbxProvider
+            .runSandbox({ snapshot, resources })
+            .pipe(Effect.mapError(GradeError.sandboxProvider));
           return exec(Object.assign(gradeSbx, { agent: agentSbx }));
         }),
       } satisfies Grader<Result>;

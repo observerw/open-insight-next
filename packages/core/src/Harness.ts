@@ -6,10 +6,7 @@ import type * as Snapshot from "#/Snapshot.ts";
 import type * as Prompt from "#/Prompt.ts";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
-export type HarnessError =
-  | Schema.SchemaError
-  | Agent.AgentError
-  | Sandbox.ProviderError;
+export type HarnessError = Schema.SchemaError | Agent.AgentError | Sandbox.SandboxProviderError;
 
 export type AgentSession<Tools extends Record<string, Tool.Any> = Record<string, never>> =
   Readonly<{
@@ -17,15 +14,9 @@ export type AgentSession<Tools extends Record<string, Tool.Any> = Record<string,
     prompt(prompt: Prompt.Prompt): Stream.Stream<Response.StreamPartView<Tools>, HarnessError>;
   }>;
 
-const makeAgentSession = <Tools extends Record<string, Tool.Any>>(agent: Agent.Agent) =>
-  ({
-    trajectory: agent.trajectory,
-    prompt: (prompt) => agent.prompt(prompt),
-  }) satisfies AgentSession<Tools>;
-
 export type SandboxSession<Tools extends Record<string, Tool.Any> = Record<string, never>> =
   Readonly<{
-    sandbox: Sandbox.Sandbox["Service"];
+    sandbox: Sandbox.Sandbox;
     runAgent: () => Effect.Effect<AgentSession<Tools>, HarnessError, Scope.Scope>;
   }>;
 
@@ -109,10 +100,7 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
     const sandbox = yield* sandboxProvider.runSandbox({ snapshot, resources, cache });
 
     const runAgent = Effect.fn(function* () {
-      const agentSession = yield* agentProvider
-        .runSession()
-        .pipe(Effect.provideService(Sandbox.Sandbox, sandbox));
-      return makeAgentSession(agentSession);
+      return yield* agentProvider.runSession(sandbox);
     }) satisfies SandboxSession<Tools>["runAgent"];
 
     return { sandbox, runAgent } satisfies SandboxSession<Tools>;
