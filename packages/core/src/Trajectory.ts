@@ -2,7 +2,9 @@ import { Effect, Function, Match, Option, Result, Schema, Sink, Stream } from "e
 import { type Tool, Toolkit } from "effect/unstable/ai";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
+import * as NdjsonStore from "#/NdjsonStore.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
+import * as ToolkitData from "#/Toolkit.ts";
 import { fold } from "#/internal/fold.ts";
 
 export class EncodeError extends Schema.TaggedError<EncodeError>(
@@ -17,13 +19,23 @@ export class DecodeError extends Schema.TaggedError<DecodeError>(
   message: Schema.optional(Schema.String),
 }) {}
 
-export class PersistenceError extends Schema.TaggedError<PersistenceError>(
-  "open-insight/trajectory/PersistenceError",
-)("PersistenceError", {
-  operation: Schema.Union([Schema.Literal("save"), Schema.Literal("load")]),
-  path: Schema.String,
-  message: Schema.optional(Schema.String),
-}) {}
+export class SaveError extends Schema.TaggedError<SaveError>("open-insight/trajectory/SaveError")(
+  "SaveError",
+  { path: Schema.String },
+) {
+  override get message(): string {
+    return `Failed to save trajectory at ${this.path}`;
+  }
+}
+
+export class LoadError extends Schema.TaggedError<LoadError>("open-insight/trajectory/LoadError")(
+  "LoadError",
+  { path: Schema.String },
+) {
+  override get message(): string {
+    return `Failed to load trajectory at ${this.path}`;
+  }
+}
 
 export class StreamingError extends Schema.TaggedError<StreamingError>(
   "open-insight/trajectory/StreamingError",
@@ -35,7 +47,8 @@ export class StreamingError extends Schema.TaggedError<StreamingError>(
 export const TrajectoryErrorReason = Schema.Union([
   EncodeError,
   DecodeError,
-  PersistenceError,
+  SaveError,
+  LoadError,
   StreamingError,
 ]);
 export type TrajectoryErrorReason = Schema.Schema.Type<typeof TrajectoryErrorReason>;
@@ -57,10 +70,9 @@ export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(
   static decode = (cause: unknown) =>
     new TrajectoryError({ reason: new DecodeError({ message: errorMessage(cause) }) });
 
-  static persistence = (operation: "save" | "load", path: string, cause: unknown) =>
-    new TrajectoryError({
-      reason: new PersistenceError({ operation, path, message: errorMessage(cause) }),
-    });
+  static save = (path: string) => new TrajectoryError({ reason: new SaveError({ path }) });
+
+  static load = (path: string) => new TrajectoryError({ reason: new LoadError({ path }) });
 
   static partStream = (cause: unknown) =>
     new TrajectoryError({
@@ -426,3 +438,61 @@ export const responseMetadataParts = (
   trajectory: AnyPartStream,
 ): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
   trajectory.pipe(toResponses).pipe(Stream.filter((part) => part.type === "response-metadata"));
+
+export const persist = (path: string) =>
+  Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
+    const store = yield* NdjsonStore.NdjsonStore;
+    const partSchema = Part(trajectory.toolkit);
+    const decodingContext = yield* Effect.context<typeof partSchema.DecodingServices>();
+
+    const encodedMetadata = yield* Schema.encodeEffect(Metadata)(trajectory.metadata).pipe(
+      Effect.mapError(TrajectoryError.encode),
+    );
+
+    const encodedParts = encode(trajectory);
+
+    const lines = Stream.make(encodedMetadata, ToolkitData.encode(trajectory.toolkit)).pipe(
+      Stream.concat(encodedParts),
+    );
+
+    yield* store
+      .save(Schema.Unknown)(path, lines)
+      .pipe(Effect.mapError(() => TrajectoryError.save(path)));
+
+    const headers = yield* store
+      .load(Schema.Unknown)(path, { limit: 2 })
+      .pipe(
+        Stream.runCollect,
+        Effect.mapError(() => TrajectoryError.load(path)),
+      );
+
+    const encodedLoadedMetadata = headers[0];
+    const encodedToolkit = headers[1];
+
+    if (encodedLoadedMetadata === undefined || encodedToolkit === undefined) {
+      return yield* TrajectoryError.load(path);
+    }
+
+    const loadedMetadata = yield* Schema.decodeUnknownEffect(Metadata)(encodedLoadedMetadata).pipe(
+      Effect.mapError(() => TrajectoryError.load(path)),
+    );
+
+    // The encoded toolkit describes the file, but cannot reconstruct runtime tool codecs.
+    yield* Schema.decodeUnknownEffect(Schema.JsonObject)(encodedToolkit).pipe(
+      Effect.mapError(() => TrajectoryError.load(path)),
+    );
+
+    const decodePart = Schema.decodeUnknownEffect(partSchema);
+
+    const parts = store
+      .load(Schema.Unknown)(path, { offset: 2 })
+      .pipe(
+        Stream.mapEffect((part) => decodePart(part).pipe(Effect.provideContext(decodingContext))),
+        Stream.mapError(() => TrajectoryError.load(path)),
+      );
+
+    return Object.assign(parts, {
+      toolkit: trajectory.toolkit,
+      metadata: loadedMetadata,
+    });
+  });

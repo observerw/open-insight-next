@@ -5,8 +5,8 @@ import * as NdjsonStore from "#/NdjsonStore.ts";
 const inMemoryFileSystem = () => {
   const files = new Map<string, Array<Uint8Array>>();
 
-  const layer = FileSystem.layerNoop({
-    sink: (path) =>
+  const backend = {
+    sink: (path: string) =>
       Sink.forEach((chunk: Uint8Array) =>
         Effect.sync(() => {
           const chunks = files.get(path) ?? [];
@@ -14,14 +14,14 @@ const inMemoryFileSystem = () => {
           files.set(path, chunks);
         }),
       ),
-    stream: (path) => Stream.fromIterable(files.get(path) ?? []),
-  });
+    stream: (path: string) => Stream.fromIterable(files.get(path) ?? []),
+  };
 
-  return { files, layer };
+  return { files, backend, layer: FileSystem.layerNoop(backend) };
 };
 
-const provideStore = (fileSystem: Layer.Layer<FileSystem.FileSystem>) =>
-  NdjsonStore.NdjsonStore.layer.pipe(Layer.provide(fileSystem));
+const provideFileStore = (fileSystem: Layer.Layer<FileSystem.FileSystem>) =>
+  NdjsonStore.layer.pipe(Layer.provide(fileSystem));
 
 it.effect("saves and loads streams with schemas supplied per operation", () => {
   const memory = inMemoryFileSystem();
@@ -43,7 +43,7 @@ it.effect("saves and loads streams with schemas supplied per operation", () => {
 
     assert.deepStrictEqual(yield* Stream.runCollect(store.load(User)("users.ndjson")), users);
     assert.deepStrictEqual(yield* Stream.runCollect(store.load(Label)("labels.ndjson")), labels);
-  }).pipe(Effect.provide(provideStore(memory.layer)));
+  }).pipe(Effect.provide(NdjsonStore.layerFromBackend(memory.backend)));
 });
 
 it.effect("ignores empty lines while loading", () => {
@@ -55,7 +55,7 @@ it.effect("ignores empty lines while loading", () => {
     const values = yield* Stream.runCollect(store.load(Schema.Number)("values.ndjson"));
 
     assert.deepStrictEqual(values, [1, 2]);
-  }).pipe(Effect.provide(provideStore(memory.layer)));
+  }).pipe(Effect.provide(NdjsonStore.layerFromBackend(memory.backend)));
 });
 
 it.effect("loads records with offset and limit", () => {
@@ -72,7 +72,7 @@ it.effect("loads records with offset and limit", () => {
     );
     assert.deepStrictEqual(yield* Stream.runCollect(load("values.ndjson", { offset: 2 })), [3, 4]);
     assert.deepStrictEqual(yield* Stream.runCollect(load("values.ndjson", { limit: 0 })), []);
-  }).pipe(Effect.provide(provideStore(memory.layer)));
+  }).pipe(Effect.provide(NdjsonStore.layerFromBackend(memory.backend)));
 });
 
 it.effect("classifies file-system write failures as SaveFailed", () =>
@@ -85,7 +85,7 @@ it.effect("classifies file-system write failures as SaveFailed", () =>
 
     assert.instanceOf(error, NdjsonStore.SaveFailed);
     assert.strictEqual(error._tag, "SaveFailed");
-  }).pipe(Effect.provide(provideStore(FileSystem.layerNoop({})))),
+  }).pipe(Effect.provide(provideFileStore(FileSystem.layerNoop({})))),
 );
 
 it.effect("classifies file-system read failures as LoadFailed", () =>
@@ -98,5 +98,5 @@ it.effect("classifies file-system read failures as LoadFailed", () =>
 
     assert.instanceOf(error, NdjsonStore.LoadFailed);
     assert.strictEqual(error._tag, "LoadFailed");
-  }).pipe(Effect.provide(provideStore(FileSystem.layerNoop({})))),
+  }).pipe(Effect.provide(provideFileStore(FileSystem.layerNoop({})))),
 );

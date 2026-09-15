@@ -1,8 +1,10 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Match, Predicate, Schema, Stream } from "effect";
+import { Effect, Match, Predicate, Schema, Sink, Stream } from "effect";
 import { Tool, Toolkit } from "effect/unstable/ai";
+import * as NdjsonStore from "#/NdjsonStore.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
+import * as ToolkitData from "#/Toolkit.ts";
 import * as Trajectory from "#/Trajectory.ts";
 
 it.effect("groups trajectory parts into session turns", () =>
@@ -348,3 +350,209 @@ it.effect("maps toolkit decoding failures to trajectory decode errors", () =>
     assert.strictEqual(error.reason._tag, "DecodeError");
   }),
 );
+
+const memoryStore = () => {
+  const files = new Map<string, Array<Uint8Array>>();
+
+  return {
+    files,
+    layer: NdjsonStore.layerFromBackend({
+      sink: (path) => {
+        files.set(path, []);
+
+        return Sink.forEach((chunk: Uint8Array) =>
+          Effect.sync(() => {
+            files.get(path)?.push(chunk.slice());
+          }),
+        );
+      },
+      stream: (path) => Stream.fromIterable(files.get(path) ?? []),
+    }),
+  };
+};
+
+it.effect(
+  "persists metadata, toolkit, and encoded parts before returning a loaded trajectory",
+  () => {
+    const memory = memoryStore();
+
+    return Effect.gen(function* () {
+      const responsePartSchema = Trajectory.ResponsePart(numberToolkit);
+
+      const prompt = Trajectory.PromptPart.make({
+        messages: Prompt.make("persist me").content,
+        session: "session-1",
+      });
+
+      const response = responsePartSchema.make({
+        response: Response.makePart("text", { text: "stored response" }),
+        session: "session-1",
+      });
+
+      const sourceParts = [prompt, response];
+
+      const source = Trajectory.make(Stream.fromIterable(sourceParts), numberToolkit, {
+        name: "persisted trajectory",
+        description: "round trip",
+      });
+
+      const persisted = yield* source.pipe(Trajectory.persist("trajectory.ndjson"));
+
+      assert.notStrictEqual(persisted, source);
+      assert.strictEqual(persisted.toolkit, source.toolkit);
+      assert.notStrictEqual(persisted.metadata, source.metadata);
+      assert.deepStrictEqual(persisted.metadata, source.metadata);
+
+      sourceParts.length = 0;
+
+      const loadedParts = yield* persisted.pipe(
+        Stream.runCollect,
+        Effect.map((parts) => Array.from(parts)),
+      );
+
+      assert.deepStrictEqual(loadedParts, [prompt, response]);
+
+      const bytes = memory.files.get("trajectory.ndjson") ?? [];
+
+      const lines = new TextDecoder()
+        .decode(Uint8Array.from(bytes.flatMap((chunk) => Array.from(chunk))))
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+
+      const encodePart = Schema.encodeSync(Trajectory.Part(numberToolkit));
+
+      assert.deepStrictEqual(lines, [
+        { name: "persisted trajectory", description: "round trip" },
+        ToolkitData.encode(numberToolkit),
+        encodePart(prompt),
+        encodePart(response),
+      ]);
+    }).pipe(Effect.provide(memory.layer));
+  },
+);
+
+it("constructs, handles, and safely encodes persistence reasons", () => {
+  const save = Trajectory.TrajectoryError.save("trajectory.ndjson");
+  const load = Trajectory.TrajectoryError.load("trajectory.ndjson");
+
+  assert.strictEqual(save.reason._tag, "SaveError");
+  assert.strictEqual(load.reason._tag, "LoadError");
+  assert.strictEqual(save.message, "Failed to save trajectory at trajectory.ndjson");
+  assert.strictEqual(load.message, "Failed to load trajectory at trajectory.ndjson");
+  assert.isFalse("cause" in save.reason);
+  assert.isFalse(Object.hasOwn(save.reason, "message"));
+
+  const handled = Effect.runSync(
+    Effect.fail(save).pipe(
+      Effect.catchReason("TrajectoryError", "SaveError", (reason) => Effect.succeed(reason.path)),
+    ),
+  );
+
+  assert.strictEqual(handled, "trajectory.ndjson");
+
+  const unmatched = Effect.runSync(
+    Effect.fail(load).pipe(
+      Effect.catchReason("TrajectoryError", "SaveError", () => Effect.void),
+      Effect.flip,
+    ),
+  );
+
+  assert.strictEqual(unmatched, load);
+
+  const encoded = Schema.encodeSync(Trajectory.TrajectoryError)(save);
+
+  assert.strictEqual(encoded._tag, "TrajectoryError");
+  assert.strictEqual(encoded.reason._tag, "SaveError");
+  assert.deepStrictEqual(Object.keys(encoded.reason).sort(), ["_tag", "path"]);
+
+  if (Predicate.isTagged("SaveError")(encoded.reason)) {
+    assert.strictEqual(encoded.reason.path, "trajectory.ndjson");
+  }
+});
+
+it.effect("maps store writes to save errors", () =>
+  Effect.gen(function* () {
+    const cause = new Error("write failed");
+
+    const layer = NdjsonStore.layerFromBackend({
+      sink: () => Sink.fail(cause),
+      stream: () => Stream.empty,
+    });
+
+    const trajectory = Trajectory.make(Stream.empty, Toolkit.empty);
+
+    const error = yield* trajectory.pipe(
+      Trajectory.persist("trajectory.ndjson"),
+      Effect.provide(layer),
+      Effect.flip,
+    );
+
+    assert.strictEqual(error.reason._tag, "SaveError");
+
+    if (Predicate.isTagged("SaveError")(error.reason)) {
+      assert.strictEqual(error.reason.path, "trajectory.ndjson");
+    }
+  }),
+);
+
+it.effect("maps invalid persisted headers to load errors", () => {
+  const layer = NdjsonStore.layerFromBackend({
+    sink: () => Sink.forEach(() => Effect.void),
+    stream: () => Stream.succeed(new TextEncoder().encode("{}\n")),
+  });
+
+  const trajectory = Trajectory.make(Stream.empty, Toolkit.empty);
+
+  return trajectory.pipe(
+    Trajectory.persist("trajectory.ndjson"),
+    Effect.provide(layer),
+    Effect.flip,
+    Effect.map((error) => {
+      assert.strictEqual(error.reason._tag, "LoadError");
+
+      if (Predicate.isTagged("LoadError")(error.reason)) {
+        assert.strictEqual(error.reason.path, "trajectory.ndjson");
+      }
+    }),
+  );
+});
+
+it.effect("maps persisted part reads to load errors", () => {
+  const files = new Map<string, Array<Uint8Array>>();
+  const cause = new Error("read failed");
+  let reads = 0;
+
+  const layer = NdjsonStore.layerFromBackend({
+    sink: (path) => {
+      files.set(path, []);
+
+      return Sink.forEach((chunk: Uint8Array) =>
+        Effect.sync(() => {
+          files.get(path)?.push(chunk.slice());
+        }),
+      );
+    },
+    stream: (path) => {
+      reads += 1;
+
+      return reads === 1 ? Stream.fromIterable(files.get(path) ?? []) : Stream.fail(cause);
+    },
+  });
+
+  return Effect.gen(function* () {
+    const trajectory = Trajectory.make(
+      Stream.succeed(Trajectory.promptPart(Prompt.make("persist me"))),
+      Toolkit.empty,
+    );
+
+    const persisted = yield* trajectory.pipe(Trajectory.persist("trajectory.ndjson"));
+    const error = yield* persisted.pipe(Stream.runDrain, Effect.flip);
+
+    assert.strictEqual(error.reason._tag, "LoadError");
+
+    if (Predicate.isTagged("LoadError")(error.reason)) {
+      assert.strictEqual(error.reason.path, "trajectory.ndjson");
+    }
+  }).pipe(Effect.provide(layer));
+});

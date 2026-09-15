@@ -21,7 +21,9 @@ import * as Eval from "#/Eval.ts";
 import * as Event from "#/Event.ts";
 import * as Task from "#/Task.ts";
 
-const makeSessionStream = Effect.fn(function* ({
+export type EvalError = Harness.HarnessError;
+
+const makeStreamSession = Effect.fn(function* ({
   promptSession,
   agentSession,
   sandbox,
@@ -30,7 +32,7 @@ const makeSessionStream = Effect.fn(function* ({
   promptSession: Prompt.Session;
   sandbox: Sandbox.Sandbox;
 }) {
-  return Stream.callback<Trajectory.StreamSessionTurn<Record<string, never>, Harness.HarnessError>>(
+  return Stream.callback<Trajectory.StreamSessionTurn<Record<string, never>, EvalError>>(
     Effect.fn(function* (queue) {
       let current: Option.Option<Prompt.Prompt> = Option.some(promptSession.init);
 
@@ -59,11 +61,11 @@ const makeSessionStream = Effect.fn(function* ({
 
 type SessionOptions = Readonly<{
   id: Event.SessionID;
-  trajectory: Trajectory.Any;
+  session: Trajectory.StreamSession<any, EvalError>;
 }>;
 const makeSession = Effect.fn(
-  function* ({ id, trajectory }: SessionOptions) {
-    const shared = yield* trajectory.pipe(Stream.share({ capacity: "unbounded" }));
+  function* ({ id, session }: SessionOptions) {
+    const shared = yield* session.pipe(Stream.share({ capacity: "unbounded" }));
 
     const startEvent = Stream.succeed(Event.SessionStartEvent.make({ id }));
     const sessionEvents = shared.pipe(
