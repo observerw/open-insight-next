@@ -9,7 +9,7 @@ import type { Tool, Toolkit } from "effect/unstable/ai";
 export type HarnessError =
   | Schema.SchemaError
   | Agent.AgentError
-  | Sandbox.SandboxProvider.ProviderError;
+  | Sandbox.ProviderError;
 
 export type AgentSession<Tools extends Record<string, Tool.Any> = Record<string, never>> =
   Readonly<{
@@ -30,12 +30,12 @@ export type SandboxSession<Tools extends Record<string, Tool.Any> = Record<strin
   }>;
 
 export type SandboxSessionConfig = Readonly<{
-  resources: Sandbox.Resources.Resources;
+  resources: Sandbox.Resources;
   cache: boolean;
 }>;
 
 export const DefaultSandboxSessionConfig: SandboxSessionConfig = {
-  resources: Sandbox.Resources.make({}),
+  resources: Sandbox.makeResources({}),
   cache: true,
 };
 
@@ -73,12 +73,12 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
 ): Effect.fn.Return<
   Harness<ID, Tools>,
   HarnessError,
-  Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider.SandboxProvider
+  Scope.Scope | Agent.ProviderService | Sandbox.SandboxProvider
 > {
   const metadata = yield* Schema.decodeEffect(Metadata)({ id, ...options });
 
   const agentProvider = yield* Agent.ProviderService;
-  const sandboxProvider = yield* Sandbox.SandboxProvider.SandboxProvider;
+  const sandboxProvider = yield* Sandbox.SandboxProvider;
 
   const acquireSnapshot = (template: Snapshot.Template) =>
     sandboxProvider.acquireSnapshot({ template, cache: true });
@@ -104,7 +104,7 @@ export const make = Effect.fn(function* <ID extends string, Tools extends Record
     snapshot: Snapshot.Snapshot;
     options: Partial<SandboxSessionConfig> | undefined;
   }>) {
-    const { resources = Sandbox.Resources.providerDefault, cache = true } = options ?? {};
+    const { resources = Sandbox.providerDefault, cache = true } = options ?? {};
 
     const sandbox = yield* sandboxProvider.runSandbox({ snapshot, resources, cache });
 

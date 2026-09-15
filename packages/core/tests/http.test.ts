@@ -1,8 +1,8 @@
 import { PROTOCOL_VERSION, type AnyMessage } from "@agentclientprotocol/sdk";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { AcpError } from "#/AcpError.ts";
-import { openHttpStream, openStream, openWebSocketStream } from "#/internal/acp-http.ts";
+import { AcpError } from "#/Acp.ts";
+import { openHttpStream, openStream, openWebSocketStream } from "#/internal/acp.ts";
 
 const initializeRequest = {
   jsonrpc: "2.0",

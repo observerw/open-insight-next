@@ -15,7 +15,7 @@ export class Task<ID extends string, G extends Schema.Constraint> extends Data.T
 
   prompt: Prompt.Session.Provider;
   snapshot: Snapshot.Template;
-  resources: Sandbox.Resources.Resources;
+  resources: Sandbox.Resources;
   grader: Grade.Template<G>;
 }> {}
 
@@ -31,7 +31,7 @@ type Options<G extends Schema.Constraint> = Omit<MetadataEncoded, "id"> &
 
     description?: string | null;
     snapshot?: Snapshot.Template;
-    resources?: Sandbox.Resources.Resources;
+    resources?: Sandbox.Resources;
   }>;
 
 export const make = <ID extends string, G extends Schema.Constraint>(
@@ -42,7 +42,7 @@ export const make = <ID extends string, G extends Schema.Constraint>(
     prompt,
     grader,
     snapshot = Snapshot.Alpine,
-    resources = Sandbox.Resources.providerDefault,
+    resources = Sandbox.providerDefault,
   } = options;
 
   const metadata = Schema.decodeSync(Metadata)({ id, ...options });

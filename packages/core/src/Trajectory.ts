@@ -1,8 +1,62 @@
-import { Effect, Function, Schema, Stream, Tuple } from "effect";
+import { Effect, Function, Match, Option, Result, Schema, Sink, Stream, Tuple } from "effect";
 import { Prompt, type Tool, Toolkit } from "effect/unstable/ai";
 import * as Response from "#/Response.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
-import * as TrajectoryError from "./TrajectoryError.ts";
+import * as PromptModule from "#/Prompt.ts";
+
+export class EncodeError extends Schema.TaggedError<EncodeError>(
+  "open-insight/trajectory/EncodeError",
+)("EncodeError", {
+  message: Schema.optional(Schema.String),
+}) {}
+
+export class DecodeError extends Schema.TaggedError<DecodeError>(
+  "open-insight/trajectory/DecodeError",
+)("DecodeError", {
+  message: Schema.optional(Schema.String),
+}) {}
+
+export class PersistenceError extends Schema.TaggedError<PersistenceError>(
+  "open-insight/trajectory/PersistenceError",
+)("PersistenceError", {
+  operation: Schema.Union([Schema.Literal("save"), Schema.Literal("load")]),
+  path: Schema.String,
+  message: Schema.optional(Schema.String),
+}) {}
+
+export const TrajectoryErrorReason = Schema.Union([EncodeError, DecodeError, PersistenceError]);
+export type TrajectoryErrorReason = Schema.Schema.Type<typeof TrajectoryErrorReason>;
+
+export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(
+  "open-insight/trajectory/TrajectoryError",
+)("TrajectoryError", {
+  reason: TrajectoryErrorReason,
+}) {
+  override get message(): string {
+    return this.reason.message ?? this.reason._tag;
+  }
+}
+
+const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : undefined);
+
+export const encodeError = (cause: unknown) =>
+  new TrajectoryError({
+    reason: new EncodeError({ message: errorMessage(cause) }),
+  });
+
+export const decodeError = (cause: unknown) =>
+  new TrajectoryError({
+    reason: new DecodeError({ message: errorMessage(cause) }),
+  });
+
+export const persistenceError = (operation: "save" | "load", path: string, cause: unknown) =>
+  new TrajectoryError({
+    reason: new PersistenceError({
+      operation,
+      path,
+      message: errorMessage(cause),
+    }),
+  });
 
 export class Metadata extends Schema.Class<Metadata>("Metadata")({
   name: Schema.optional(Schema.String),
@@ -45,23 +99,20 @@ export type AnyPart = Part<any>;
 
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   Part<Tools>,
-  TrajectoryError.TrajectoryError
+  TrajectoryError
 >;
 export type AnyPartStream = PartStream<Record<string, never>>;
 
-/**
- * A trajectory represents a sequence of turns in a conversation, where each turn consists of a prompt and the corresponding response.
- */
 export type Trajectory<Tools extends Record<string, Tool.Any>> = PartStream<Tools> &
   Readonly<{ toolkit: Toolkit.Toolkit<Tools>; metadata: Metadata }>;
 export type Any = Trajectory<Record<string, never>>;
-export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError.TrajectoryError>;
+export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError>;
 
 export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(
   trajectory: Trajectory<Tools>,
 ): Effect.fn.Return<
   TrajectoryEncoded,
-  TrajectoryError.TrajectoryError,
+  TrajectoryError,
   Tool.ResultEncodingServices<Tools[keyof Tools]>
 > {
   const partSchema = Part(trajectory.toolkit);
@@ -71,7 +122,7 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
   return trajectory.pipe(
     Stream.mapEffect((part) =>
       encodePart(part).pipe(
-        Effect.mapError(TrajectoryError.encodeError),
+        Effect.mapError(encodeError),
         Effect.provideContext(encodingContext),
       ),
     ),
@@ -90,7 +141,7 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
   const parts = trajectory.pipe(
     Stream.mapEffect((part) =>
       decodePart(part).pipe(
-        Effect.mapError(TrajectoryError.decodeError),
+        Effect.mapError(decodeError),
         Effect.provideContext(decodingContext),
       ),
     ),
@@ -99,12 +150,95 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
   return Object.assign(parts, { toolkit }) as Trajectory<Toolkit.MergedTools<Toolkits>>;
 });
 
-/**
- * Overrides the metadata of a trajectory with the given metadata.
- */
 export const metadata = Function.dual<
   <T extends Any>(metadata: Metadata) => (trajectory: T) => T,
   <T extends Any>(trajectory: T, metadata: Metadata) => T
 >(2, <T extends Any>(trajectory: T, metadata: Metadata): T =>
   Object.assign(trajectory, { metadata }),
 );
+
+export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
+  prompt: PromptModule.Prompt;
+  response: Response.PartView<Tools>[];
+}>;
+
+export type Session<Tools extends Record<string, Tool.Any>> = Stream.Stream<
+  SessionTurn<Tools>,
+  TrajectoryError
+>;
+
+export const session = <Tools extends Record<string, Tool.Any>>(
+  trajectory: PartStream<Tools>,
+): Session<Tools> => {
+  throw new Error("not implemented");
+};
+
+export const prompt = <Tools extends Record<string, Tool.Any>>(
+  trajectory: PartStream<Tools>,
+): Effect.Effect<PromptModule.Prompt, TrajectoryError> =>
+  session(trajectory).pipe(
+    Stream.runFold(
+      () => PromptModule.empty,
+      (curr, { prompt, response }) =>
+        PromptModule.concat(
+          curr,
+          PromptModule.concat(prompt, PromptModule.fromResponseParts(response)),
+        ),
+    ),
+  );
+
+export const responses = <Tools extends Record<string, Tool.Any>>(
+  trajectory: PartStream<Tools>,
+): Stream.Stream<Response.AllPartsView<Tools>, TrajectoryError> =>
+  trajectory.pipe(
+    Stream.filterMap((part) =>
+      Match.value(part).pipe(
+        Match.tag("Response", ({ response }) => Result.succeed(response)),
+        Match.tag("Prompt", (prompt) => Result.fail(prompt)),
+        Match.exhaustive,
+      ),
+    ),
+  );
+
+export const finishPart: Sink.Sink<
+  Option.Option<Response.FinishPart>,
+  Part<any>
+> = Sink.reduce(
+  () => Option.none<Response.FinishPart>(),
+  (state, part) =>
+    part._tag === "Response" && part.response.type === "finish"
+      ? Option.some(part.response)
+      : state,
+);
+
+export const metadataPart: Sink.Sink<
+  Option.Option<Response.ResponseMetadataPart>,
+  AnyPart
+> = Sink.reduce(
+  () => Option.none<Response.ResponseMetadataPart>(),
+  (state, part) =>
+    part._tag === "Response" && part.response.type === "response-metadata"
+      ? Option.some(part.response)
+      : state,
+);
+
+export const usage = (
+  trajectory: AnyPartStream,
+): Effect.Effect<Option.Option<Response.Usage>, TrajectoryError> =>
+  trajectory.pipe(
+    Stream.run(finishPart),
+    Effect.map((part) => Option.map(part, (p) => p.usage)),
+  );
+
+export const finishReason = (
+  trajectory: AnyPartStream,
+): Effect.Effect<Option.Option<Response.FinishReason>, TrajectoryError> =>
+  trajectory.pipe(
+    Stream.run(finishPart),
+    Effect.map((part) => Option.map(part, (p) => p.reason)),
+  );
+
+export const responseMetadataParts = (
+  trajectory: AnyPartStream,
+): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
+  trajectory.pipe(responses).pipe(Stream.filter((part) => part.type === "response-metadata"));

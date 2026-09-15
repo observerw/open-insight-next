@@ -1,6 +1,14 @@
 import { Prompt, Sandbox, Snapshot } from "@open-insight/core";
-import { Data, Effect, Match, Scope, type Schema } from "effect";
-import type { GradeError } from "./GradeError.ts";
+import { Data, Effect, Equal, Match, Schema, Scope } from "effect";
+
+export const GradeErrorReason = Schema.Union([Sandbox.SandboxError]);
+export type GradeErrorReason = Schema.Schema.Type<typeof GradeErrorReason>;
+
+export class GradeError extends Schema.TaggedError<GradeError>("GradeError")("GradeError", {
+  reason: GradeErrorReason,
+}) {
+  static sandbox = (error: Sandbox.SandboxError) => new GradeError({ reason: error });
+}
 
 export class Retry extends Data.TaggedError("Retry")<{
   readonly type: "continue" | "restart";
@@ -27,7 +35,7 @@ type SidecarExec<Result extends Schema.Constraint> = (
 export type SidecarTemplate<Result extends Schema.Constraint = any> = Readonly<{
   exec: SidecarExec<Result>;
   snapshot: Snapshot.Template;
-  resources: Sandbox.Resources.Resources;
+  resources: Sandbox.Resources;
   scope: SandboxScope;
   concurrency: number;
 }>;
@@ -45,12 +53,12 @@ export const makeSidecar = <Result extends Schema.Constraint>(
   exec: SidecarExec<Result>,
   {
     snapshot = Snapshot.Alpine,
-    resources = Sandbox.Resources.providerDefault,
+    resources = Sandbox.providerDefault,
     scope = "per-trail",
     concurrency = 1,
   }: {
     snapshot?: Snapshot.Template;
-    resources?: Sandbox.Resources.Resources;
+    resources?: Sandbox.Resources;
     scope?: SandboxScope;
     concurrency?: number;
   } = {},
@@ -76,7 +84,7 @@ export type Grader<Result extends Schema.Constraint> = Readonly<{
 export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Constraint>(
   template: Template<Result>,
 ) {
-  const sbxProvider = yield* Sandbox.SandboxProvider.SandboxProvider;
+  const sbxProvider = yield* Sandbox.SandboxProvider;
 
   switch (template._tag) {
     case "Embed": {
@@ -112,3 +120,20 @@ export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Cons
     }
   }
 });
+
+export type Context = Sandbox.Sandbox;
+
+export type Verif<Result extends Schema.Constraint = any> = Readonly<{
+  exec: (context: Context) => Effect.Effect<Prompt.Prompt, GradeError>;
+  expect: Partial<Result["Type"]>;
+}>;
+
+export type Exec = (context: Context) => Effect.Effect<Prompt.RawInput, unknown>;
+
+export const isMatch = <Result extends Schema.Constraint>({
+  result,
+  expect,
+}: Readonly<{
+  expect: Partial<Result["Type"]>;
+  result: Result["Type"];
+}>) => Equal.equals(result, Object.assign({}, result, expect));

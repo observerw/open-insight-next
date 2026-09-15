@@ -29,10 +29,6 @@ const AnyToolCallPartTypeId = "~effect/ai/Content/AnyToolCallPart" as const;
 
 const AnyToolResultPartTypeId = "~effect/ai/Content/AnyToolResultPart" as const;
 
-// =============================================================================
-// All Parts
-// =============================================================================
-
 /**
  * Union type for all response parts that also accepts tools outside the
  * provided toolkit.
@@ -60,10 +56,6 @@ export const AllPartsView = <T extends Toolkit.Any | Toolkit.WithHandler<any>>(
   Tool.ResultDecodingServices<Toolkit.Tools<T>[keyof Toolkit.Tools<T>]>,
   Tool.ResultEncodingServices<Toolkit.Tools<T>[keyof Toolkit.Tools<T>]>
 > => withAnyToolParts(AllParts(toolkit), toolkit) as any;
-
-// =============================================================================
-// Parts
-// =============================================================================
 
 /**
  * Union type for non-streaming response parts that also accepts tools outside
@@ -93,10 +85,6 @@ export const PartView = <T extends Toolkit.Any | Toolkit.WithHandler<any>>(
   Tool.ResultEncodingServices<Toolkit.Tools<T>[keyof Toolkit.Tools<T>]>
 > => withAnyToolParts(Part(toolkit), toolkit) as any;
 
-// =============================================================================
-// Stream Parts
-// =============================================================================
-
 /**
  * Union type for streaming response parts that also accepts tools outside the
  * provided toolkit.
@@ -124,10 +112,6 @@ export const StreamPartView = <T extends Toolkit.Any | Toolkit.WithHandler<any>>
   Tool.ResultDecodingServices<Toolkit.Tools<T>[keyof Toolkit.Tools<T>]>,
   Tool.ResultEncodingServices<Toolkit.Tools<T>[keyof Toolkit.Tools<T>]>
 > => withAnyToolParts(StreamPart(toolkit), toolkit) as any;
-
-// =============================================================================
-// utility types
-// =============================================================================
 
 /**
  * Union type for tool call parts that also accepts tools outside the provided
@@ -234,10 +218,6 @@ export const AnyToolCallPart: Schema.Codec<AnyToolCallPart, ToolCallPartEncoded>
   ).annotate({ identifier: "AnyToolCallPart" }) as any;
 })();
 
-// =============================================================================
-// Tool Call Result Part
-// =============================================================================
-
 /**
  * Tool result part whose name and result are not restricted by a toolkit.
  *
@@ -343,10 +323,6 @@ export const AnyToolResultPart: Schema.Codec<AnyToolResultPart, ToolResultPartEn
     ),
   ).annotate({ identifier: "AnyToolResultPart" }) as any;
 })();
-
-// =============================================================================
-// internal
-// =============================================================================
 
 const withAnyToolParts = (
   schema: Schema.Top,

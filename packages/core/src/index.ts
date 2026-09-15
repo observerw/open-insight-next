@@ -21,3 +21,5 @@ export * as Process from "./Process.ts";
 export * as Git from "./Git.ts";
 
 export * as Shell from "./Shell.ts";
+
+export * as Cache from "./Cache.ts";

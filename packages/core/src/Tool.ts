@@ -1,9 +1,9 @@
 import * as Response from "#/Response.ts";
 import { Effect, Match, Schema, Stream } from "effect";
 import { type Tool, Toolkit } from "effect/unstable/ai";
-import { Part, type Trajectory } from "./Trajectory.ts";
-import { responses } from "./TrajectoryView.ts";
-import type { TrajectoryError } from "./TrajectoryError.ts";
+import * as Trajectory from "./Trajectory.ts";
+import { Part } from "./Trajectory.ts";
+
 
 export type ToolTurns<Tools extends Record<string, Tool.Any>> = {
   [Name in keyof Tools]: Name extends string
@@ -15,11 +15,11 @@ export type ToolTurns<Tools extends Record<string, Tool.Any>> = {
 }[keyof Tools];
 
 export const toolTurns = <Tools extends Record<string, Tool.Any>>(
-  trajectory: Trajectory<Tools>,
-): Stream.Stream<ToolTurns<Tools>, TrajectoryError> => {
+  trajectory: Trajectory.Trajectory<Tools>,
+): Stream.Stream<ToolTurns<Tools>, Trajectory.TrajectoryError> => {
   const toolNames = new Set(Object.keys(trajectory.toolkit.tools));
 
-  return responses(trajectory).pipe(
+  return Trajectory.responses(trajectory).pipe(
     Stream.mapAccum<
       ReadonlyMap<string, Response.ToolCallParts<Tools>>,
       Response.AllPartsView<Tools>,
@@ -59,12 +59,12 @@ export const toolTurns = <Tools extends Record<string, Tool.Any>>(
 };
 
 export const toolCalls = <Tools extends Record<string, Tool.Any>>(
-  trajectory: Trajectory<Tools>,
-): Stream.Stream<Response.ToolCallPartsView<Tools>, TrajectoryError> =>
+  trajectory: Trajectory.Trajectory<Tools>,
+): Stream.Stream<Response.ToolCallPartsView<Tools>, Trajectory.TrajectoryError> =>
   toolTurns(trajectory).pipe(Stream.map((turn) => turn.call));
 
 export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkits: Toolkits) =>
-  Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
+  Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory.Trajectory<Tools>) {
     const merged = Toolkit.merge(trajectory.toolkit, ...toolkits);
 
     const sourceSchema = Response.PartView(trajectory.toolkit);

@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import type { SandboxError } from "./SandboxError.ts";
+import type { SandboxError } from "./Sandbox.ts";
 
 export class Storage extends Context.Service<
   Storage,

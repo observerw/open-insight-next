@@ -6,7 +6,7 @@ import {
   MissingManifest,
   PluginError,
   UnsupportedSchema,
-} from "#/PluginError.ts";
+} from "#/Plugin.ts";
 
 it("constructs independent tagged plugin errors without native causes", () => {
   const reasons = [

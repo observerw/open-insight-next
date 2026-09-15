@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Encoding } from "effect";
 import { Prompt } from "effect/unstable/ai";
-import { AcpError } from "#/AcpError.ts";
-import { toAcpPrompt } from "#/internal/acp-prompt.ts";
+import { AcpError } from "#/Acp.ts";
+import { toAcpPrompt } from "#/internal/acp.ts";
 
 const message = (...content: ReadonlyArray<Prompt.UserMessagePart>): Prompt.UserMessage =>
   Prompt.userMessage({ content });

@@ -12,22 +12,180 @@ import {
   type McpServer,
   type PromptCapabilities,
   type SessionUpdate,
+  type ToolKind,
 } from "@agentclientprotocol/sdk";
-import { Cause, Effect, FiberSet, Layer, Path, Queue, Ref, Schedule, Stream } from "effect";
+import { Cause, Effect, Encoding, FiberSet, Formatter, Layer, Path, Queue, Ref, Result, Schedule, Schema, Stream } from "effect";
 import * as Agent from "#/Agent.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import * as Sandbox from "#/Sandbox.ts";
 import * as Snapshot from "#/Snapshot.ts";
 import * as Bash from "#/Shell.ts";
-import { AcpError } from "./AcpError.ts";
-import { transform } from "./AcpHarness.ts";
 import {
   type HttpStreamOptions,
   openStream,
+  toAcpPrompt,
   type WebSocketStreamOptions,
-} from "./internal/acp-http.ts";
-import { toAcpPrompt } from "./internal/acp-prompt.ts";
+} from "./internal/acp.ts";
+
+export const PromptErrorReason = Schema.Literals([
+  "capability_not_enabled",
+  "invalid_base64",
+  "invalid_data_url",
+  "data_url_media_type_mismatch",
+]);
+export type PromptErrorReason = Schema.Schema.Type<typeof PromptErrorReason>;
+
+export const PromptCapability = Schema.Literals(["image", "audio", "embeddedContext"]);
+export type PromptCapability = Schema.Schema.Type<typeof PromptCapability>;
+
+export class PromptError extends Schema.TaggedError<PromptError>(
+  "open-insight/AcpError/PromptError",
+)("PromptError", {
+  reason: PromptErrorReason,
+  partIndex: Schema.Number,
+  partType: Schema.Literals(["text", "file"]),
+  mediaType: Schema.optionalKey(Schema.String),
+  capability: Schema.optionalKey(PromptCapability),
+}) {
+  override get message(): string {
+    switch (this.reason) {
+      case "capability_not_enabled":
+        return `ACP prompt part ${this.partIndex} requires the ${this.capability ?? "requested"} capability`;
+      case "invalid_base64":
+        return `ACP prompt part ${this.partIndex} contains invalid base64 data`;
+      case "invalid_data_url":
+        return `ACP prompt part ${this.partIndex} contains an invalid data URL`;
+      case "data_url_media_type_mismatch":
+        return `ACP prompt part ${this.partIndex} has a data URL media type mismatch`;
+    }
+  }
+}
+
+export const HttpTransportOperation = Schema.Literals([
+  "parse-url",
+  "connect",
+  "request",
+  "response",
+]);
+export type HttpTransportOperation = Schema.Schema.Type<typeof HttpTransportOperation>;
+
+export class HttpTransportError extends Schema.TaggedError<HttpTransportError>(
+  "open-insight/AcpError/HttpTransportError",
+)("HttpTransportError", {
+  url: Schema.String,
+  operation: HttpTransportOperation,
+  status: Schema.optionalKey(Schema.Number),
+  detail: Schema.optionalKey(Schema.String),
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {
+  override get message(): string {
+    const status = this.status === undefined ? "" : ` with HTTP status ${this.status}`;
+    const detail =
+      this.detail ?? (this.cause === undefined ? undefined : Formatter.format(this.cause));
+    return `ACP HTTP transport ${this.operation} failed for ${this.url}${status}${detail === undefined ? "" : `: ${detail}`}`;
+  }
+}
+
+export const AuthenticationErrorReason = Schema.Literals([
+  "authentication_required",
+  "unsupported_method",
+  "authentication_failed",
+]);
+export type AuthenticationErrorReason = Schema.Schema.Type<typeof AuthenticationErrorReason>;
+
+export class AuthenticationError extends Schema.TaggedError<AuthenticationError>(
+  "open-insight/AcpError/AuthenticationError",
+)("AuthenticationError", {
+  reason: AuthenticationErrorReason,
+  methodId: Schema.optionalKey(Schema.String),
+  availableMethodIds: Schema.Array(Schema.String),
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {
+  override get message(): string {
+    const available = this.availableMethodIds.join(", ");
+    switch (this.reason) {
+      case "authentication_required":
+        return available.length === 0
+          ? "ACP agent requires authentication"
+          : `ACP agent requires authentication; configure auth with one of: ${available}`;
+      case "unsupported_method":
+        return `ACP authentication method ${this.methodId} is not supported; available methods: ${available}`;
+      case "authentication_failed":
+        return `ACP authentication failed for method ${this.methodId}`;
+    }
+  }
+}
+
+export const ErrorReason = Schema.Union([PromptError, HttpTransportError, AuthenticationError]);
+export type ErrorReason = Schema.Schema.Type<typeof ErrorReason>;
+
+export class AcpError extends Schema.TaggedError<AcpError>("open-insight/AcpError")("AcpError", {
+  reason: ErrorReason,
+}) {
+  override get message(): string {
+    return this.reason.message;
+  }
+
+  override get cause(): ErrorReason {
+    return this.reason;
+  }
+
+  static prompt = (reason: PromptError): AcpError => AcpError.make({ reason });
+
+  static http =
+    (url: string, operation: HttpTransportOperation, status?: number) =>
+    (cause: unknown): AcpError =>
+      AcpError.make({
+        reason: HttpTransportError.make({
+          url,
+          operation,
+          cause,
+          ...(status === undefined ? {} : { status }),
+        }),
+      });
+
+  static httpResponse = (url: string, status: number, detail: string): AcpError =>
+    AcpError.make({
+      reason: HttpTransportError.make({ url, operation: "response", status, detail }),
+    });
+
+  static authenticationRequired = (
+    availableMethodIds: ReadonlyArray<string>,
+    cause?: unknown,
+  ): AcpError =>
+    AcpError.make({
+      reason: AuthenticationError.make({
+        reason: "authentication_required",
+        availableMethodIds: [...availableMethodIds],
+        ...(cause === undefined ? {} : { cause }),
+      }),
+    });
+
+  static unsupportedAuthenticationMethod = (
+    methodId: string,
+    availableMethodIds: ReadonlyArray<string>,
+  ): AcpError =>
+    AcpError.make({
+      reason: AuthenticationError.make({
+        reason: "unsupported_method",
+        methodId,
+        availableMethodIds: [...availableMethodIds],
+      }),
+    });
+
+  static authenticationFailed =
+    (methodId: string) =>
+    (cause: unknown): AcpError =>
+      AcpError.make({
+        reason: AuthenticationError.make({
+          reason: "authentication_failed",
+          methodId,
+          availableMethodIds: [],
+          cause,
+        }),
+      });
+}
 
 const agentError = (cause: unknown): Agent.AgentError => Agent.AgentError.make({ cause });
 
@@ -53,26 +211,9 @@ const unsupportedCapabilities = {
 } satisfies ClientCapabilities;
 
 export interface Options extends HttpStreamOptions, WebSocketStreamOptions {
-  /**
-   * Authentication request to send when the agent advertises authentication
-   * methods during initialization.
-   * Credentials remain agent-managed per ACP.
-   */
   readonly auth?: AuthenticateRequest;
   readonly agentArgs?: ReadonlyArray<string>;
-  /**
-   * Environment variables baked into the generated snapshot and inherited by `acp-agent serve` and the agent process it starts.
-   * Use this for the selected agent's runtime configuration, such as `DEFAULT_AUTH_REQUEST`
-   * or `CODEX_CONFIG`.
-   *
-   * Values become part of the derived snapshot image.
-   * Do not use this for credentials unless that image is kept private.
-   */
   readonly serveEnv?: Readonly<Record<string, string>>;
-  /**
-   * Activates the agent's yolo/auto-approve mode by passing `--yolo` to `acp-agent serve`, which injects the agent's mapped startup flag from the published yolo-mode catalog.
-   * Enabled by default; set `disableYolo` to `true` to opt out.
-   */
   readonly disableYolo?: boolean;
   readonly port?: number;
   readonly path?: string;
@@ -149,19 +290,6 @@ const validateOptions = Effect.fn("Acp.validateOptions")(function* (
 });
 
 const snapshotExtension = (agentId: string, options: Options): Agent.SnapshotExtension => {
-  const port = String(options.port ?? DEFAULT_PORT);
-  const path = options.path ?? DEFAULT_PATH;
-  const serveArgs = [
-    agentId,
-    "--host",
-    "0.0.0.0",
-    "--port",
-    port,
-    "--path",
-    path,
-    ...(options.disableYolo === true ? [] : ["--yolo"]),
-    ...(options.agentArgs === undefined ? [] : ["--", ...options.agentArgs]),
-  ];
   const serveEnv = options.serveEnv;
 
   return {
@@ -311,9 +439,6 @@ const sessionStartError =
     return Agent.AgentError.make({ cause: cause });
   };
 
-// The agent server process inside the sandbox binds its listener a moment
-// after the container starts. Poll its liveness endpoint until it accepts
-// connections so the first transport request is not sent into a closed socket.
 const agentReady = (url: URL, options: Options): Effect.Effect<boolean, Agent.AgentError> =>
   Effect.tryPromise({
     try: async () => {
@@ -433,3 +558,441 @@ export const makeProvider = Effect.fn("Acp.makeProvider")(function* (
 
 export const layerFrom = (agentID: string, options: Options) =>
   Layer.effect(Agent.ProviderService, makeProvider(agentID, options));
+
+type SegmentKind = "text" | "reasoning";
+
+type AgentChunkUpdate = Extract<
+  SessionUpdate,
+  { sessionUpdate: "agent_message_chunk" | "agent_thought_chunk" }
+>;
+
+type UsageUpdate = Extract<SessionUpdate, { sessionUpdate: "usage_update" }>;
+
+type HarnessState = Readonly<{
+  active: Readonly<Record<SegmentKind, string | undefined>>;
+  fallbackIndexes: Readonly<Record<SegmentKind, number>>;
+  toolNames: ReadonlyMap<string, string>;
+  usage: UsageUpdate | undefined;
+}>;
+
+const initialHarnessState = (): HarnessState => ({
+  active: {
+    text: undefined,
+    reasoning: undefined,
+  },
+  fallbackIndexes: {
+    text: 0,
+    reasoning: 0,
+  },
+  toolNames: new Map(),
+  usage: undefined,
+});
+
+const streamEnd = Symbol("AcpStreamEnd");
+
+const streamCompleteMetadata: Response.ProviderMetadata = {
+  acp: {
+    sessionUpdate: "stream_complete",
+  },
+};
+
+type StreamPart = Response.StreamPartView<{}>;
+
+const emptyUsage = (): Response.Usage =>
+  new Response.Usage({
+    inputTokens: {
+      uncached: undefined,
+      total: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+    },
+    outputTokens: {
+      total: undefined,
+      text: undefined,
+      reasoning: undefined,
+    },
+  });
+
+const omittedJsonValue = { omitted: true } as const;
+
+const jsonSafe = (value: unknown, ancestors = new Set<object>()): Schema.Json => {
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return value;
+    case "number":
+      return Number.isFinite(value) ? value : omittedJsonValue;
+    case "object": {
+      if (value === null) {
+        return value;
+      }
+      if (ancestors.has(value)) {
+        return omittedJsonValue;
+      }
+
+      ancestors.add(value);
+      try {
+        if (Array.isArray(value)) {
+          return value.map((item) => jsonSafe(item, ancestors));
+        }
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype !== Object.prototype && prototype !== null) {
+          return omittedJsonValue;
+        }
+        return Object.fromEntries(
+          Object.entries(value).map(([key, item]) => [key, jsonSafe(item, ancestors)]),
+        );
+      } catch {
+        return omittedJsonValue;
+      } finally {
+        ancestors.delete(value);
+      }
+    }
+    default:
+      return omittedJsonValue;
+  }
+};
+
+const acpMetadata = (update: SessionUpdate): Response.ProviderMetadata => ({
+  acp: jsonSafe(update),
+});
+
+const finishMetadata = (update: UsageUpdate | undefined): Response.ProviderMetadata =>
+  update === undefined ? streamCompleteMetadata : acpMetadata(update);
+
+const harnessMetadataPart = (metadata: Response.ProviderMetadata): Response.ResponseMetadataPart =>
+  Response.makePart("response-metadata", { metadata });
+
+const harnessFinishPart = (update: UsageUpdate | undefined): Response.FinishPart =>
+  Response.makePart("finish", {
+    reason: "unknown",
+    usage:
+      update === undefined
+        ? emptyUsage()
+        : new Response.Usage({
+            inputTokens: {
+              uncached: undefined,
+              total: update.used,
+              cacheRead: undefined,
+              cacheWrite: undefined,
+            },
+            outputTokens: {
+              total: undefined,
+              text: undefined,
+              reasoning: undefined,
+            },
+          }),
+    metadata: finishMetadata(update),
+  });
+
+const segmentStartPart = (
+  kind: SegmentKind,
+  id: string,
+  metadata: Response.ProviderMetadata,
+): Response.TextStartPart | Response.ReasoningStartPart =>
+  kind === "text"
+    ? Response.makePart("text-start", { id, metadata })
+    : Response.makePart("reasoning-start", { id, metadata });
+
+const segmentDeltaPart = (
+  kind: SegmentKind,
+  id: string,
+  delta: string,
+  metadata: Response.ProviderMetadata,
+): Response.TextDeltaPart | Response.ReasoningDeltaPart =>
+  kind === "text"
+    ? Response.makePart("text-delta", { id, delta, metadata })
+    : Response.makePart("reasoning-delta", { id, delta, metadata });
+
+const segmentEndPart = (
+  kind: SegmentKind,
+  id: string,
+  metadata: Response.ProviderMetadata,
+): Response.TextEndPart | Response.ReasoningEndPart =>
+  kind === "text"
+    ? Response.makePart("text-end", { id, metadata })
+    : Response.makePart("reasoning-end", { id, metadata });
+
+const base64ToBytes = (data: string): Uint8Array | undefined =>
+  Result.match(Encoding.decodeBase64(data), {
+    onFailure: () => undefined,
+    onSuccess: (bytes) => bytes,
+  });
+
+const filePartFromBase64 = (
+  data: string,
+  mediaType: string,
+  metadata: Response.ProviderMetadata,
+): ReadonlyArray<StreamPart> => {
+  const bytes = base64ToBytes(data);
+  return bytes === undefined
+    ? [harnessMetadataPart(metadata)]
+    : [Response.makePart("file", { mediaType, data: bytes, metadata })];
+};
+
+const contentBlockToParts = (
+  content: ContentBlock,
+  metadata: Response.ProviderMetadata,
+): ReadonlyArray<StreamPart> => {
+  switch (content.type) {
+    case "image":
+    case "audio":
+      return filePartFromBase64(content.data, content.mimeType, metadata);
+    case "resource":
+      return "blob" in content.resource
+        ? filePartFromBase64(
+            content.resource.blob,
+            content.resource.mimeType ?? "application/octet-stream",
+            metadata,
+          )
+        : [harnessMetadataPart(metadata)];
+    case "resource_link":
+    case "text":
+      return [harnessMetadataPart(metadata)];
+  }
+};
+
+const programmaticToolName = (name: string | null | undefined): string | undefined => {
+  const normalized = name?.trim();
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
+};
+
+const inferToolName = (
+  kind: ToolKind | null | undefined,
+  title: string | null | undefined,
+  fallback: string,
+): string => {
+  if (kind !== undefined && kind !== null) {
+    return kind;
+  }
+
+  const normalized = (title ?? "")
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9_]+/g, "_")
+    .replaceAll(/^_+|_+$/g, "");
+
+  return normalized.length > 0 ? normalized : fallback;
+};
+
+const fallbackToolName = (toolCallId: string): string => {
+  const normalized = toolCallId.replaceAll(/[^a-zA-Z0-9_]+/g, "_");
+  return normalized.length > 0 ? `acp_tool_${normalized}` : "acp_tool";
+};
+
+const toolCallPart = (
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call" }>,
+  name: string,
+  metadata: Response.ProviderMetadata,
+): Response.AnyToolCallPart =>
+  Response.anyToolCallPart({
+    id: update.toolCallId,
+    name,
+    params: jsonSafe(
+      update.rawInput === undefined
+        ? {
+            title: update.title,
+            kind: update.kind ?? null,
+          }
+        : update.rawInput,
+    ),
+    providerExecuted: true,
+    metadata,
+  });
+
+const toolResultPart = (
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>,
+  name: string,
+  metadata: Response.ProviderMetadata,
+): Response.AnyToolResultPart => {
+  const result = jsonSafe(
+    update.rawOutput ??
+      update.content ??
+      update.locations ?? {
+        status: update.status ?? null,
+      },
+  );
+
+  return Response.anyToolResultPart({
+    id: update.toolCallId,
+    name,
+    isFailure: update.status === "failed",
+    result,
+    encodedResult: result,
+    providerExecuted: true,
+    preliminary: update.status !== "completed" && update.status !== "failed",
+    metadata,
+  });
+};
+
+const chunkKind = (update: AgentChunkUpdate): SegmentKind =>
+  update.sessionUpdate === "agent_message_chunk" ? "text" : "reasoning";
+
+const nextChunkId = (
+  state: HarnessState,
+  update: AgentChunkUpdate,
+  kind: SegmentKind,
+): readonly [HarnessState, string] => {
+  if (update.messageId !== undefined && update.messageId !== null) {
+    return [state, update.messageId];
+  }
+
+  const activeId = state.active[kind];
+  if (activeId !== undefined) {
+    return [state, activeId];
+  }
+
+  const index = state.fallbackIndexes[kind] + 1;
+  const prefix = kind === "text" ? "acp-agent-message" : "acp-agent-thought";
+  return [
+    {
+      ...state,
+      fallbackIndexes: {
+        ...state.fallbackIndexes,
+        [kind]: index,
+      },
+    },
+    `${prefix}-${index}`,
+  ];
+};
+
+const setActiveSegment = (state: HarnessState, kind: SegmentKind, id: string | undefined): HarnessState => ({
+  ...state,
+  active: {
+    ...state.active,
+    [kind]: id,
+  },
+});
+
+const closeSegment = (
+  state: HarnessState,
+  kind: SegmentKind,
+  metadata: Response.ProviderMetadata,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] => {
+  const activeId = state.active[kind];
+  if (activeId === undefined) {
+    return [state, []];
+  }
+
+  return [setActiveSegment(state, kind, undefined), [segmentEndPart(kind, activeId, metadata)]];
+};
+
+const handleAgentChunk = (
+  state: HarnessState,
+  update: AgentChunkUpdate,
+  metadata: Response.ProviderMetadata,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] => {
+  const kind = chunkKind(update);
+  if (update.content.type !== "text") {
+    return [state, contentBlockToParts(update.content, metadata)];
+  }
+
+  const [stateWithId, id] = nextChunkId(state, update, kind);
+  const activeId = stateWithId.active[kind];
+  const startsSegment = activeId !== id;
+  const closedParts: ReadonlyArray<StreamPart> =
+    activeId !== undefined && startsSegment ? [segmentEndPart(kind, activeId, metadata)] : [];
+  const nextState = startsSegment ? setActiveSegment(stateWithId, kind, id) : stateWithId;
+
+  return [
+    nextState,
+    [
+      ...closedParts,
+      ...(startsSegment ? [segmentStartPart(kind, id, metadata)] : []),
+      segmentDeltaPart(kind, id, update.content.text, metadata),
+    ],
+  ];
+};
+
+const handleToolCall = (
+  state: HarnessState,
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call" }>,
+  metadata: Response.ProviderMetadata,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] => {
+  const name =
+    programmaticToolName(update.name) ?? inferToolName(update.kind, update.title, "acp_tool");
+  const toolNames = new Map(state.toolNames);
+  toolNames.set(update.toolCallId, name);
+  return [
+    {
+      ...state,
+      toolNames,
+    },
+    [toolCallPart(update, name, metadata)],
+  ];
+};
+
+const handleToolCallUpdate = (
+  state: HarnessState,
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>,
+  metadata: Response.ProviderMetadata,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] => {
+  const existingName = state.toolNames.get(update.toolCallId);
+  const name =
+    programmaticToolName(update.name) ??
+    existingName ??
+    inferToolName(update.kind, update.title, fallbackToolName(update.toolCallId));
+
+  if (existingName === name) {
+    return [state, [toolResultPart(update, name, metadata)]];
+  }
+
+  const toolNames = new Map(state.toolNames);
+  toolNames.set(update.toolCallId, name);
+  return [{ ...state, toolNames }, [toolResultPart(update, name, metadata)]];
+};
+
+const handleHarnessUpdate = (
+  state: HarnessState,
+  update: SessionUpdate,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] => {
+  if (update.sessionUpdate === "usage_update") {
+    return [{ ...state, usage: update }, []];
+  }
+
+  const metadata = acpMetadata(update);
+  switch (update.sessionUpdate) {
+    case "agent_message_chunk":
+    case "agent_thought_chunk":
+      return handleAgentChunk(state, update, metadata);
+    case "tool_call":
+      return handleToolCall(state, update, metadata);
+    case "tool_call_update":
+      return handleToolCallUpdate(state, update, metadata);
+    case "user_message_chunk":
+    case "plan":
+    case "plan_update":
+    case "plan_removed":
+    case "available_commands_update":
+    case "current_mode_update":
+    case "config_option_update":
+    case "session_info_update":
+      return [state, [harnessMetadataPart(metadata)]];
+    default:
+      return [state, [harnessMetadataPart(metadata)]];
+  }
+};
+
+const closeStream = (state: HarnessState): ReadonlyArray<StreamPart> => {
+  const [stateWithoutText, textParts] = closeSegment(state, "text", streamCompleteMetadata);
+  const [_closedState, reasoningParts] = closeSegment(
+    stateWithoutText,
+    "reasoning",
+    streamCompleteMetadata,
+  );
+  return [...textParts, ...reasoningParts, harnessFinishPart(state.usage)];
+};
+
+const handleStreamEvent = (
+  state: HarnessState,
+  event: SessionUpdate | typeof streamEnd,
+): readonly [HarnessState, ReadonlyArray<StreamPart>] =>
+  event === streamEnd ? [state, closeStream(state)] : handleHarnessUpdate(state, event);
+
+export const transform = <E, R>(
+  stream: Stream.Stream<SessionUpdate, E, R>,
+): Stream.Stream<StreamPart, E, R> =>
+  stream.pipe(
+    Stream.concat(Stream.succeed(streamEnd)),
+    Stream.mapAccum(initialHarnessState, handleStreamEvent),
+  );

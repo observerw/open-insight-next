@@ -1,8 +1,88 @@
 import { Effect, FileSystem, Option, Path, Schema } from "effect";
-import { PluginError } from "./PluginError.ts";
-import { PluginSchemaId } from "./PluginConstants.ts";
 
-export { PluginSchemaId } from "./PluginConstants.ts";
+export const PluginSchemaId = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+
+export class InvalidPath extends Schema.TaggedError<InvalidPath>(
+  "open-insight/PluginError/InvalidPath",
+)("InvalidPath", {
+  path: Schema.String,
+}) {
+  override get message(): string {
+    return `Cannot use "${this.path}" as a plugin root`;
+  }
+}
+
+export class MissingManifest extends Schema.TaggedError<MissingManifest>(
+  "open-insight/PluginError/MissingManifest",
+)("MissingManifest", {
+  path: Schema.String,
+}) {
+  override get message(): string {
+    return `No plugin.json manifest found at plugin root "${this.path}"`;
+  }
+}
+
+export class UnsupportedSchema extends Schema.TaggedError<UnsupportedSchema>(
+  "open-insight/PluginError/UnsupportedSchema",
+)("UnsupportedSchema", {
+  found: Schema.optionalKey(Schema.String),
+}) {
+  override get message(): string {
+    const found = this.found === undefined ? "missing" : `"${this.found}"`;
+
+    return `Unsupported plugin manifest $schema ${found}; expected ${PluginSchemaId}`;
+  }
+}
+
+export class InvalidManifest extends Schema.TaggedError<InvalidManifest>(
+  "open-insight/PluginError/InvalidManifest",
+)("InvalidManifest", {
+  field: Schema.optionalKey(Schema.String),
+}) {
+  override get message(): string {
+    const where = this.field === undefined ? "manifest" : `manifest field "${this.field}"`;
+
+    return `Invalid ${where}`;
+  }
+}
+
+export const ErrorReason = Schema.Union([
+  InvalidPath,
+  MissingManifest,
+  UnsupportedSchema,
+  InvalidManifest,
+]);
+
+export type ErrorReason = Schema.Schema.Type<typeof ErrorReason>;
+
+export class PluginError extends Schema.TaggedError<PluginError>("open-insight/PluginError")(
+  "PluginError",
+  { reason: ErrorReason },
+) {
+  override get message(): string {
+    return this.reason.message;
+  }
+
+  override get cause(): ErrorReason {
+    return this.reason;
+  }
+
+  static invalidPath = (path: string): PluginError =>
+    PluginError.make({ reason: InvalidPath.make({ path }) });
+
+  static missingManifest = (path: string): PluginError =>
+    PluginError.make({ reason: MissingManifest.make({ path }) });
+
+  static unsupportedSchema = (found?: string): PluginError =>
+    PluginError.make({
+      reason: UnsupportedSchema.make(found === undefined ? {} : { found }),
+    });
+
+  static invalidManifest = (field?: string): PluginError =>
+    PluginError.make({
+      reason: InvalidManifest.make(field === undefined ? {} : { field }),
+    });
+}
 
 /** Fixed location, relative to the plugin root, where skills are discovered. */
 export const SkillsDir = "skills";

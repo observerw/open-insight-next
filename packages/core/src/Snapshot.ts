@@ -66,6 +66,8 @@ export class ContainerfileTemplate extends Schema.TaggedClass<ContainerfileTempl
 export const Template = Schema.Union([InstructionsTemplate, ContainerfileTemplate]);
 export type Template = Schema.Schema.Type<typeof Template>;
 
+const defaultCommand = cmd("sleep", "infinity");
+
 export const fromImage = (image: string): InstructionsTemplate =>
   new InstructionsTemplate({ image, context: "/tmp", instructions: [defaultCommand] });
 
@@ -120,11 +122,9 @@ export const writeInstructions = Effect.fn(function* (template: InstructionsTemp
   });
 
   yield* fs.writeFileString(containerfilePath, encode(template));
-
   return containerfilePath;
 });
 
-const defaultCommand = cmd("sleep", "infinity");
 export const build = Effect.fn(function* ({
   filePath,
   context,

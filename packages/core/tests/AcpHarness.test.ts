@@ -1,7 +1,7 @@
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Option, Stream } from "effect";
-import { transform } from "#/AcpHarness.ts";
+import { transform } from "#/Acp.ts";
 import * as Response from "#/Response.ts";
 
 const collect = (
