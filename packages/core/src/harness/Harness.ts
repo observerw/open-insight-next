@@ -1,5 +1,5 @@
 import { Data, Effect, Option, RcMap, type Ref, Schema, type Scope, Stream } from "effect";
-import * as Agent from "#/Agent.ts";
+import * as Agent from "#/agent/index.ts";
 import * as Sandbox from "#/sandbox/index.ts";
 import type * as Response from "#/response/index.ts";
 import type * as Snapshot from "#/snapshot/index.ts";

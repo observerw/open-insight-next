@@ -30,7 +30,7 @@ export type Provider = Readonly<{
   acquireSnapshot(
     options: Readonly<{
       template: Snapshot.Template;
-      cache: boolean;
+      cache?: boolean;
     }>,
   ): Effect.Effect<Snapshot.Snapshot, ProviderError, Scope.Scope>;
 
@@ -44,7 +44,7 @@ export type Provider = Readonly<{
       snapshot: Snapshot.Snapshot;
       instructions: Snapshot.Instruction.Instructions;
       context: string;
-      cache: boolean;
+      cache?: boolean;
     }>,
   ): Effect.Effect<Snapshot.Snapshot, ProviderError, Scope.Scope>;
 
@@ -54,7 +54,7 @@ export type Provider = Readonly<{
   runSandbox(options: {
     snapshot: Snapshot.Snapshot;
     resources: Resources.Resources;
-    cache: boolean;
+    cache?: boolean;
   }): Effect.Effect<Sandbox.Sandbox["Service"], ProviderError, Scope.Scope>;
 }>;
 

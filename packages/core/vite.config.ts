@@ -7,8 +7,10 @@ export default defineConfig({
     },
     exports: {
       devExports: true,
-      all: true,
-      packageJson: true,
+      customExports: {
+        "./*": "./src/*/index.ts",
+      },
+      exclude: ["**/*/*.test.ts"],
     },
   },
   lint: {

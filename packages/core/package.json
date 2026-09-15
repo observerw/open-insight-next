@@ -21,13 +21,14 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./*"
+    "./package.json": "./package.json",
+    "./*": "./src/*/index.ts"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
-      "./rolldown-runtime-BBjsoOtd": "./dist/rolldown-runtime-BBjsoOtd.mjs",
-      "./*": "./*"
+      "./package.json": "./package.json",
+      "./*": "./src/*/index.ts"
     },
     "access": "public"
   },

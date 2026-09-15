@@ -8,7 +8,7 @@ export * as Response from "./response/index.ts";
 
 export * as Trajectory from "./trajectory/index.ts";
 
-export * as Agent from "./Agent.ts";
+export * as Agent from "./agent/Agent.ts";
 
 export * as Harness from "./Harness.ts";
 

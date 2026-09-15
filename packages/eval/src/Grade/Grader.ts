@@ -68,17 +68,23 @@ export type GradeSession<Result extends Schema.Constraint> = Effect.Effect<
   GradeError | Retry
 >;
 export type Grader<Result extends Schema.Constraint> = Readonly<{
-  runSession(): Effect.Effect<GradeSession<Result>, GradeError, Scope.Scope | Sandbox.Sandbox>;
+  runSession(
+    agentSbx: Sandbox.SandboxService,
+  ): Effect.Effect<GradeSession<Result>, GradeError, Scope.Scope>;
 }>;
 
-export const make = Effect.fn("Grade.make")(function* <Result extends Schema.Constraint>(
+export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Constraint>(
   template: Template<Result>,
 ) {
   const sbxProvider = yield* Sandbox.SandboxProvider.SandboxProvider;
 
   switch (template._tag) {
     case "Embed": {
-      return { runSession: () => Sandbox.Sandbox.pipe(Effect.map(template.exec)) };
+      return {
+        runSession: Effect.fn(function* (agentSbx) {
+          return template.exec(agentSbx);
+        }),
+      } satisfies Grader<Result>;
     }
     case "SidecarPerTask": {
       const { snapshot: snapshotTemplate, resources, exec } = template;
@@ -87,27 +93,22 @@ export const make = Effect.fn("Grade.make")(function* <Result extends Schema.Con
         cache: true,
       });
       return {
-        runSession: Effect.fn(function* () {
-          const agentSbx = yield* Sandbox.Sandbox;
-          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources, cache: false });
+        runSession: Effect.fn(function* (agentSbx) {
+          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources });
           return exec(Object.assign(gradeSbx, { agent: agentSbx }));
         }),
-      };
+      } satisfies Grader<Result>;
     }
     case "SidecarPerTrail": {
       const { snapshot: snapshotTemplate, resources, exec } = template;
 
       return {
-        runSession: Effect.fn(function* () {
-          const snapshot = yield* sbxProvider.acquireSnapshot({
-            template: snapshotTemplate,
-            cache: true,
-          });
-          const agentSbx = yield* Sandbox.Sandbox;
-          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources, cache: false });
+        runSession: Effect.fn(function* (agentSbx) {
+          const snapshot = yield* sbxProvider.acquireSnapshot({ template: snapshotTemplate });
+          const gradeSbx = yield* sbxProvider.runSandbox({ snapshot, resources });
           return exec(Object.assign(gradeSbx, { agent: agentSbx }));
         }),
-      };
+      } satisfies Grader<Result>;
     }
   }
 });

@@ -12,21 +12,6 @@ export type Verif<Result extends Schema.Constraint = any> = Readonly<{
 
 export type Exec = (context: Context) => Effect.Effect<Prompt.RawInput, unknown>;
 
-export const make = <Result extends Schema.Constraint>({
-  exec: execOption,
-  expect,
-}: Readonly<{
-  exec: Exec;
-  expect: Partial<Result["Type"]>;
-}>) => {
-  const exec = ((context) =>
-    execOption(context)
-      .pipe(Effect.mapError(GradeError.verify))
-      .pipe(Effect.map(Prompt.make))) satisfies Verif["exec"];
-
-  return { exec, expect } satisfies Verif<Result>;
-};
-
 export const isMatch = <Result extends Schema.Constraint>({
   result,
   expect,

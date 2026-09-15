@@ -14,7 +14,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
 import { Cause, Effect, FiberSet, Layer, Path, Queue, Ref, Schedule, Stream } from "effect";
-import * as Agent from "#/Agent.ts";
+import * as Agent from "#/agent/Agent.ts";
 import * as Prompt from "#/prompt/index.ts";
 import * as Response from "#/response/index.ts";
 import * as Sandbox from "#/sandbox/index.ts";
