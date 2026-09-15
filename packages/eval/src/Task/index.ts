@@ -1,1 +1,1 @@
-import {} from "@open-insight/core";
+import {} from "@open-insight/core/trajectory/index";

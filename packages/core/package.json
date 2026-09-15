@@ -22,13 +22,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./package.json": "./package.json",
-    "./*": "./src/*/index.ts"
+    "./*": "./src/*.ts",
+    "./internal/*": null
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.mjs",
+      ".": "./src/index.ts",
       "./package.json": "./package.json",
-      "./*": "./src/*/index.ts"
+      "./*": "./src/*.ts",
+      "./internal/*": null
     },
     "access": "public"
   },

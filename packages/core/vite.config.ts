@@ -8,9 +8,11 @@ export default defineConfig({
     exports: {
       devExports: true,
       customExports: {
-        "./*": "./src/*/index.ts",
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./internal/*": null,
       },
-      exclude: ["**/*/*.test.ts"],
+      exclude: ["cli", "**\/*.test", /internal/],
     },
   },
   lint: {

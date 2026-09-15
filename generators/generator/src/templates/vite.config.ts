@@ -7,6 +7,9 @@ export default defineConfig({
     },
     exports: {
       devExports: true,
+      customExports: {
+        "./*": "./src/*.ts",
+      },
     },
   },
   lint: {
