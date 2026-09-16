@@ -1,5 +1,5 @@
 import { Prompt, Sandbox, Snapshot } from "@open-insight/core";
-import { Data, Effect, Equal, Match, Schema, Scope } from "effect";
+import { Data, Effect, Equal, flow, Match, Schema, Scope } from "effect";
 
 export const GradeErrorReason = Schema.Union([Sandbox.SandboxError, Sandbox.SandboxProviderError]);
 export type GradeErrorReason = Schema.Schema.Type<typeof GradeErrorReason>;
@@ -22,7 +22,9 @@ type EmbedExec<Result extends Schema.Constraint> = (
   ctx: Sandbox.Sandbox,
 ) => Effect.Effect<Result["Type"], GradeError | Retry>;
 export type EmbedTemplate<Result extends Schema.Constraint> = Readonly<{
+  schema: Result;
   exec: EmbedExec<Result>;
+  verif?: Verifier<Result>;
 }>;
 
 export type SandboxScope = "per-task" | "per-trail";
@@ -35,11 +37,13 @@ type SidecarExec<Result extends Schema.Constraint> = (
     }>,
 ) => Effect.Effect<Result["Type"], GradeError | Retry>;
 export type SidecarTemplate<Result extends Schema.Constraint = any> = Readonly<{
+  schema: Result;
   exec: SidecarExec<Result>;
   snapshot: Snapshot.Template;
   resources: Sandbox.Resources;
   scope: SandboxScope;
   concurrency: number;
+  verif?: Verifier<Result>;
 }>;
 
 export type Template<Result extends Schema.Constraint> =
@@ -48,21 +52,26 @@ export type Template<Result extends Schema.Constraint> =
   | (SidecarTemplate<Result> & { _tag: "SidecarPerTrail" });
 
 export const makeEmbed = <Result extends Schema.Constraint>(
+  schema: Result,
   exec: EmbedExec<Result>,
-): Template<Result> => ({ _tag: "Embed" as const, exec });
+  verif?: Verifier<Result>,
+): Template<Result> => ({ _tag: "Embed" as const, schema, exec, verif });
 
 export const makeSidecar = <Result extends Schema.Constraint>(
+  schema: Result,
   exec: SidecarExec<Result>,
   {
     snapshot = Snapshot.Alpine,
     resources = Sandbox.providerDefault,
     scope = "per-trail",
     concurrency = 1,
+    verif,
   }: {
     snapshot?: Snapshot.Template;
     resources?: Sandbox.Resources;
     scope?: SandboxScope;
     concurrency?: number;
+    verif?: Verifier<Result>;
   } = {},
 ): Template<Result> => {
   const _tag = Match.value(scope).pipe(
@@ -70,7 +79,7 @@ export const makeSidecar = <Result extends Schema.Constraint>(
     Match.when("per-trail", () => "SidecarPerTrail" as const),
     Match.exhaustive,
   );
-  return { _tag, exec, snapshot, resources, scope, concurrency };
+  return { _tag, schema, exec, snapshot, resources, scope, concurrency, verif };
 };
 
 export type GradeSession<Result extends Schema.Constraint> = Effect.Effect<
@@ -129,14 +138,14 @@ export const run = Effect.fn("Grade.make")(function* <Result extends Schema.Cons
   }
 });
 
-export type Context = Sandbox.Sandbox;
-
-export type Verif<Result extends Schema.Constraint = any> = Readonly<{
-  exec: (context: Context) => Effect.Effect<Prompt.Prompt, GradeError>;
+export type Verifier<Result extends Schema.Constraint> = Readonly<{
+  exec: (sandbox: Sandbox.Sandbox) => Effect.Effect<Prompt.Prompt, GradeError>;
   expect: Partial<Result["Type"]>;
 }>;
-
-export type Exec = (context: Context) => Effect.Effect<Prompt.RawInput, unknown>;
+export const makeVerifier = <Result extends Schema.Constraint>(
+  exec: (sandbox: Sandbox.Sandbox) => Effect.Effect<Prompt.RawInput, GradeError>,
+  expect: Partial<Result["Type"]>,
+): Verifier<Result> => ({ exec: flow(exec, Effect.map(Prompt.make)), expect });
 
 export const isMatch = <Result extends Schema.Constraint>({
   result,

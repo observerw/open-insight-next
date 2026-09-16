@@ -1,4 +1,4 @@
-import { Prompt, Sandbox, Snapshot, Trajectory } from "@open-insight/core";
+import { Metric, Metrickit, Prompt, Sandbox, Snapshot, Trajectory } from "@open-insight/core";
 import * as Grade from "#/Grade.ts";
 import { Data, Effect, Schema } from "effect";
 
@@ -30,13 +30,20 @@ export class TaskResult<S extends Schema.Constraint> extends Data.TaggedClass("T
 }> {}
 
 export type Reducer<G extends Schema.Constraint, S extends Schema.Constraint> = Readonly<{
-  exec: (trailResults: ReadonlyArray<TrailResult<G>>) => Effect.Effect<TaskResult<S>, TaskError>;
+  exec: (
+    trailResults: ReadonlyArray<TrailResult<G>>,
+  ) => Effect.Effect<TaskResult<NoInfer<S>>, TaskError>;
   schema: S;
 }>;
 
-export interface Config {
-  readonly grade: Schema.Constraint;
-  readonly result: Schema.Constraint;
+export interface Config<
+  Grade extends Schema.Constraint = Schema.Constraint,
+  Result extends Schema.Constraint = Schema.Constraint,
+  Metrics extends Record<string, Metric.Any> = Record<string, Metric.Any>,
+> {
+  readonly grade: Grade;
+  readonly result: Result;
+  readonly metrics: Metrics;
 }
 
 export class Task<ID extends string, C extends Config> extends Data.TaggedClass("Task")<{
@@ -48,6 +55,7 @@ export class Task<ID extends string, C extends Config> extends Data.TaggedClass(
   resources: Sandbox.Resources;
   grader: Grade.Template<C["grade"]>;
   reducer: Reducer<C["grade"], C["result"]>;
+  metrickit: Metrickit.Metrickit<C["metrics"]>;
 }> {}
 
 export type Any = Task<any, any>;
@@ -55,32 +63,43 @@ export type Any = Task<any, any>;
 export type IdOf<T> = T extends Task<infer ID, any> ? ID : never;
 export type ConfigOf<T> = T extends Task<any, infer C> ? C : never;
 
-type Options<C extends Config> = Omit<MetadataEncoded, "id"> &
+type Options<
+  Grade extends Schema.Constraint,
+  Result extends Schema.Constraint,
+  Metrics extends Record<string, Metric.Any>,
+> = Omit<MetadataEncoded, "id"> &
   Readonly<{
     prompt: Prompt.Session;
-    grader: Grade.Template<C["grade"]>;
-    reducer: Reducer<C["grade"], C["result"]>;
+    grader: Grade.Template<Grade>;
+    reducer: Reducer<Grade, Result>;
 
     description?: string | null;
     snapshot?: Snapshot.Template;
     resources?: Sandbox.Resources;
+    metrickit?: Metrickit.Metrickit<Metrics>;
   }>;
 
-export const make = <ID extends string, C extends Config>(
+export const make = <
+  ID extends string,
+  Grade extends Schema.Constraint,
+  Result extends Schema.Constraint,
+  Metrics extends Record<string, Metric.Any>,
+>(
   id: ID,
-  options: Options<C>,
-): Task<ID, C> => {
+  options: Options<Grade, Result, Metrics>,
+): Task<ID, Config<Grade, Result>> => {
   const {
     prompt,
     grader,
     reducer,
     snapshot = Snapshot.Alpine,
     resources = Sandbox.providerDefault,
+    metrickit = Metrickit.empty,
   } = options;
 
   const metadata = Schema.decodeSync(Metadata)({ id, ...options });
 
-  return new Task({
+  return new Task<ID, Config<Grade, Result>>({
     id,
     metadata,
     prompt,
@@ -88,5 +107,6 @@ export const make = <ID extends string, C extends Config>(
     reducer,
     snapshot,
     resources,
+    metrickit,
   });
 };

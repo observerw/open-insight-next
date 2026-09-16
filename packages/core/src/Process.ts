@@ -102,6 +102,8 @@ export class Process extends Context.Service<
 
     success(command: Command): Effect.Effect<void, ProcessError>;
 
+    stream(command: Command, options?: OutputOptions): Stream.Stream<Uint8Array, ProcessError>;
+
     streamString(command: Command, options?: OutputOptions): Stream.Stream<string, ProcessError>;
 
     streamLines(command: Command, options?: OutputOptions): Stream.Stream<string, ProcessError>;
@@ -128,7 +130,6 @@ export class Process extends Context.Service<
 
         if (exitCode !== 0 && errorOnNonZeroExit) {
           const { stdout, stderr } = yield* toExecHandle(handle);
-
           return yield* ProcessError.exit(exitCode, stdout, stderr);
         }
 
@@ -158,18 +159,18 @@ export class Process extends Context.Service<
       const success: Process["Service"]["success"] = (command) =>
         process(command).pipe(Effect.scoped, Effect.asVoid);
 
-      const streamString: Process["Service"]["streamString"] = (
-        command,
-        { includeStderr, ...options } = {},
-      ) =>
+      const stream: Process["Service"]["stream"] = (command, { includeStderr, ...options } = {}) =>
         process(command, options).pipe(
           Effect.map((handle) =>
-            Stream.decodeText(includeStderr === true ? handle.all : handle.stdout).pipe(
+            (includeStderr === true ? handle.all : handle.stdout).pipe(
               Stream.mapError(ProcessError.platform),
             ),
           ),
           Stream.unwrap,
         );
+
+      const streamString: Process["Service"]["streamString"] = (command, options) =>
+        Stream.decodeText(stream(command, options));
 
       const streamLines: Process["Service"]["streamLines"] = (command, options) =>
         Stream.splitLines(streamString(command, options));
@@ -185,6 +186,7 @@ export class Process extends Context.Service<
         exec,
         exitCode,
         success,
+        stream,
         streamString,
         streamLines,
         string,

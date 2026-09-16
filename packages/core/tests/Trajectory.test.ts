@@ -65,24 +65,18 @@ it.effect("creates ordered trajectory parts and folds streamed responses", () =>
       },
     });
 
-    const session = Stream.make(
-      {
-        prompt: firstPrompt,
-        response: Stream.make(
-          Response.makePart("text-start", { id: "text-1" }),
-          Response.makePart("text-delta", { id: "text-1", delta: "hello " }),
-          Response.makePart("text-delta", { id: "text-1", delta: "world" }),
-          Response.makePart("text-end", { id: "text-1" }),
-          finish,
-        ),
-      },
-      {
-        prompt: secondPrompt,
-        response: Stream.make(Response.makePart("text", { text: "done" })),
-      },
+    const session: Trajectory.SessionStream<{}> = Stream.make(
+      firstPrompt,
+      Response.makePart("text-start", { id: "text-1" }),
+      Response.makePart("text-delta", { id: "text-1", delta: "hello " }),
+      Response.makePart("text-delta", { id: "text-1", delta: "world" }),
+      Response.makePart("text-end", { id: "text-1" }),
+      finish,
+      secondPrompt,
+      Response.makePart("text", { text: "done" }),
     );
 
-    const parts = yield* Trajectory.fromSession(session, Toolkit.empty).pipe(
+    const parts = yield* Trajectory.fromStreamSession(session, Toolkit.empty).pipe(
       Stream.runCollect,
       Effect.map((parts) => Array.from(parts)),
     );
@@ -110,17 +104,17 @@ it.effect("creates ordered trajectory parts and folds streamed responses", () =>
   }),
 );
 
-it.effect("maps response stream failures to trajectory streaming errors", () =>
+it.effect("preserves session failures while folding streamed parts", () =>
   Effect.gen(function* () {
     const cause = new Error("response failed");
+    const error = Trajectory.TrajectoryError.streaming(cause);
     const observed: Array<Trajectory.AnyPart> = [];
 
-    const session = Stream.succeed({
-      prompt: Prompt.make("prompt"),
-      response: Stream.fail(cause),
-    });
+    const session: Trajectory.SessionStream<{}> = Stream.make(Prompt.make("prompt")).pipe(
+      Stream.concat(Stream.fail(error)),
+    );
 
-    const error = yield* Trajectory.fromSession(session, Toolkit.empty).pipe(
+    const failure = yield* Trajectory.fromStreamSession(session, Toolkit.empty).pipe(
       Stream.tap((part) =>
         Effect.sync(() => {
           observed.push(part);
@@ -132,14 +126,23 @@ it.effect("maps response stream failures to trajectory streaming errors", () =>
 
     assert.strictEqual(observed.length, 1);
     assert.strictEqual(observed[0]?._tag, "Prompt");
-    assert.strictEqual(error.reason._tag, "StreamingError");
+    assert.strictEqual(failure, error);
 
-    if (Predicate.isTagged("StreamingError")(error.reason)) {
-      assert.strictEqual(error.reason.cause, cause);
-      assert.strictEqual(error.message, cause.message);
+    if (Predicate.isTagged("StreamingError")(failure.reason)) {
+      assert.strictEqual(failure.reason.cause, cause);
+      assert.strictEqual(failure.message, cause.message);
     }
   }),
 );
+
+it("carries the toolkit and metadata of the trajectory", () => {
+  const toolkit = Toolkit.empty;
+
+  const trajectory = Trajectory.fromStreamSession(Stream.empty, toolkit, { name: "session" });
+
+  assert.strictEqual(trajectory.toolkit, toolkit);
+  assert.strictEqual(trajectory.metadata.name, "session");
+});
 
 const NumberTool = Tool.make("number", {
   parameters: Schema.Struct({ value: Schema.NumberFromString }),

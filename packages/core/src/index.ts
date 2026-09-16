@@ -26,4 +26,6 @@ export * as Cache from "./Cache.ts";
 
 export * as Metric from "./Metric.ts";
 
-export * as NdjsonStore from "./StreamStore.ts";
+export * as Metrickit from "./Metrickit.ts";
+
+export * as StreamStore from "./StreamStore.ts";
