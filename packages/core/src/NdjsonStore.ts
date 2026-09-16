@@ -40,6 +40,7 @@ export interface Service {
     key: string,
     values: Stream.Stream<S["Type"], E, R>,
   ) => Effect.Effect<void, E | SaveFailed, R | S["EncodingServices"]>;
+
   readonly load: <S extends Schema.Constraint>(
     schema: S,
   ) => (

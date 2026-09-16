@@ -35,7 +35,7 @@ it.effect("groups trajectory parts into session turns", () =>
 
 it.effect("preserves trajectory failures while grouping session turns", () =>
   Effect.gen(function* () {
-    const error = Trajectory.TrajectoryError.partStream(new Error("trajectory failed"));
+    const error = Trajectory.TrajectoryError.streaming(new Error("trajectory failed"));
 
     const trajectory = Stream.succeed<Trajectory.AnyPart>(
       Trajectory.promptPart(Prompt.make("prompt")),

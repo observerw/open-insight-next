@@ -1,3 +1,10 @@
+/**
+ * Defines a shared model for recorded interactions with a model.
+ *
+ * A trajectory is a stream of parts: prompt parts record the messages sent to a
+ * model, response parts record the parts produced in return, and the trajectory
+ * carries the toolkit used to interpret tool parts and metadata describing it.
+ */
 import { Effect, Function, Match, Option, Result, Schema, Sink, Stream } from "effect";
 import { type Tool, Toolkit } from "effect/unstable/ai";
 import * as Prompt from "#/Prompt.ts";
@@ -7,18 +14,27 @@ import { Timestamp, Uuid } from "#/Schema.ts";
 import * as ToolkitData from "#/Toolkit.ts";
 import { fold } from "#/internal/fold.ts";
 
+/**
+ * Error indicating that a trajectory part could not be encoded.
+ */
 export class EncodeError extends Schema.TaggedError<EncodeError>(
   "open-insight/trajectory/EncodeError",
 )("EncodeError", {
   message: Schema.optional(Schema.String),
 }) {}
 
+/**
+ * Error indicating that an encoded trajectory part could not be decoded.
+ */
 export class DecodeError extends Schema.TaggedError<DecodeError>(
   "open-insight/trajectory/DecodeError",
 )("DecodeError", {
   message: Schema.optional(Schema.String),
 }) {}
 
+/**
+ * Error indicating that a trajectory could not be saved.
+ */
 export class SaveError extends Schema.TaggedError<SaveError>("open-insight/trajectory/SaveError")(
   "SaveError",
   { path: Schema.String },
@@ -28,6 +44,9 @@ export class SaveError extends Schema.TaggedError<SaveError>("open-insight/traje
   }
 }
 
+/**
+ * Error indicating that a trajectory could not be loaded.
+ */
 export class LoadError extends Schema.TaggedError<LoadError>("open-insight/trajectory/LoadError")(
   "LoadError",
   { path: Schema.String },
@@ -37,13 +56,22 @@ export class LoadError extends Schema.TaggedError<LoadError>("open-insight/traje
   }
 }
 
+/**
+ * Error indicating that a trajectory stream failed.
+ */
 export class StreamingError extends Schema.TaggedError<StreamingError>(
   "open-insight/trajectory/StreamingError",
 )("StreamingError", {
+  /**
+   * The defect that caused the failure.
+   */
   cause: Schema.Defect(),
   message: Schema.optional(Schema.String),
 }) {}
 
+/**
+ * Schema for the reasons a trajectory operation can fail.
+ */
 export const TrajectoryErrorReason = Schema.Union([
   EncodeError,
   DecodeError,
@@ -51,101 +79,297 @@ export const TrajectoryErrorReason = Schema.Union([
   LoadError,
   StreamingError,
 ]);
+
+/**
+ * Union of the reasons a trajectory operation can fail.
+ */
 export type TrajectoryErrorReason = Schema.Schema.Type<typeof TrajectoryErrorReason>;
 
 const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : undefined);
 
+/**
+ * Error raised by trajectory operations.
+ */
 export class TrajectoryError extends Schema.TaggedError<TrajectoryError>(
   "open-insight/trajectory/TrajectoryError",
 )("TrajectoryError", {
+  /**
+   * The reason this trajectory operation failed.
+   */
   reason: TrajectoryErrorReason,
 }) {
   override get message(): string {
     return this.reason.message ?? this.reason._tag;
   }
 
+  /**
+   * Creates a trajectory error for an encode failure.
+   */
   static encode = (cause: unknown) =>
     new TrajectoryError({ reason: new EncodeError({ message: errorMessage(cause) }) });
 
+  /**
+   * Creates a trajectory error for a decode failure.
+   */
   static decode = (cause: unknown) =>
     new TrajectoryError({ reason: new DecodeError({ message: errorMessage(cause) }) });
 
+  /**
+   * Creates a trajectory error for a save failure.
+   */
   static save = (path: string) => new TrajectoryError({ reason: new SaveError({ path }) });
 
+  /**
+   * Creates a trajectory error for a load failure.
+   */
   static load = (path: string) => new TrajectoryError({ reason: new LoadError({ path }) });
 
-  static partStream = (cause: unknown) =>
+  /**
+   * Creates a trajectory error for a stream failure.
+   */
+  static streaming = (cause: unknown) =>
     new TrajectoryError({
       reason: new StreamingError({ cause, message: errorMessage(cause) }),
     });
 }
 
+/**
+ * Descriptive metadata attached to a trajectory.
+ */
 export class Metadata extends Schema.Class<Metadata>("Metadata")({
+  /**
+   * Optional identifier of the trajectory.
+   */
+  id: Schema.optional(Schema.String),
+  /**
+   * Optional name of the trajectory.
+   */
   name: Schema.optional(Schema.String),
+  /**
+   * Optional description of the trajectory.
+   */
   description: Schema.optional(Schema.String),
 }) {}
+
+/**
+ * Encoded representation of metadata for serialization.
+ */
 export type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
 
+/**
+ * Schema for the metadata carried by every trajectory part.
+ */
 export const PartMetadata = Schema.Struct({
+  /**
+   * Unique identifier of the part.
+   */
   uuid: Uuid,
+  /**
+   * Optional identifier of the session the part belongs to.
+   */
   session: Schema.optional(Schema.String),
+  /**
+   * Optional extra data attached to the part.
+   */
   extra: Schema.optional(Schema.Json),
 });
+
+/**
+ * Metadata carried by every trajectory part.
+ */
 export type PartMetadata = Schema.Schema.Type<typeof PartMetadata>;
 
+/**
+ * Schema for validation and encoding of prompt parts.
+ */
 export const PromptPart = Schema.TaggedStruct("Prompt", {
   messages: Schema.Array(Prompt.Message),
   ...PartMetadata.fields,
 });
+
+/**
+ * Trajectory part that records the messages sent to a model.
+ */
 export type PromptPart = Schema.Schema.Type<typeof PromptPart>;
+
+/**
+ * Encoded representation of prompt parts for serialization.
+ */
 export type PromptPartEncoded = Schema.Codec.Encoded<typeof PromptPart>;
+
+/**
+ * Constructs a new prompt part from a prompt.
+ *
+ * **Example** (Recording a prompt)
+ *
+ * ```ts import.meta.vitest
+ * import { Prompt, Trajectory } from "@open-insight/core"
+ *
+ * const part = Trajectory.promptPart(Prompt.make("What is 2 + 2?"))
+ * part._tag // => "Prompt"
+ * ```
+ */
 export const promptPart = (prompt: Prompt.Prompt): PromptPart =>
   PromptPart.make({ messages: prompt.content });
 
+/**
+ * Creates a Schema for a response part based on a toolkit.
+ *
+ * **Details**
+ *
+ * The timestamp is recorded when the part is constructed, and the response
+ * accepts tools outside the provided toolkit.
+ */
 export const ResponsePart = <T extends Toolkit.Any>(toolkit: T) =>
   Schema.TaggedStruct("Response", {
     response: Response.PartView(toolkit),
     timestamp: Timestamp,
     ...PartMetadata.fields,
   });
+
+/**
+ * Trajectory part that records a part produced by a model.
+ */
 export type ResponsePart<T extends Toolkit.Any> = Schema.Schema.Type<
   ReturnType<typeof ResponsePart<T>>
 >;
+
+/**
+ * Encoded representation of response parts for serialization.
+ */
 export type ResponsePartEncoded = Schema.Codec.Encoded<ReturnType<typeof ResponsePart<any>>>;
+
+/**
+ * Schema for a response part that also accepts tools outside the provided
+ * toolkit.
+ *
+ * @see {@link ResponsePart} for a Schema restricted to the provided toolkit.
+ */
 export const AnyResponsePart = ResponsePart(Toolkit.empty);
+
+/**
+ * Response part that also accepts tools outside the provided toolkit.
+ */
 export type AnyResponsePart = Schema.Schema.Type<typeof AnyResponsePart>;
+
+/**
+ * Constructs a new response part from a part produced by a model.
+ *
+ * **Example** (Recording a response part)
+ *
+ * ```ts import.meta.vitest
+ * import { Response, Trajectory } from "@open-insight/core"
+ *
+ * const part = Trajectory.responsePart(Response.makePart("text", { text: "Hello" }))
+ * part._tag // => "Response"
+ * ```
+ */
 export const responsePart = (response: Response.Part<any>): AnyResponsePart =>
   AnyResponsePart.make({ response });
 
+/**
+ * Creates a Schema for trajectory parts based on a toolkit.
+ */
 export const Part = <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
   Schema.Union([PromptPart, ResponsePart(toolkit)]);
+
+/**
+ * Union type of the parts of a trajectory for a toolkit.
+ */
 export type Part<Tools extends Record<string, Tool.Any>> = Schema.Schema.Type<
   ReturnType<typeof Part<Tools>>
 >;
+
+/**
+ * Encoded representation of trajectory parts for serialization.
+ */
 export type PartEncoded = Schema.Codec.Encoded<ReturnType<typeof Part<any>>>;
+
+/**
+ * Trajectory part that also accepts tools outside the provided toolkit.
+ */
 export type AnyPart = PromptPart | AnyResponsePart;
 
+/**
+ * Stream of the parts of a trajectory.
+ */
 export type PartStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   Part<Tools>,
   TrajectoryError
 >;
+
+/**
+ * Stream of trajectory parts that also accepts tools outside the provided
+ * toolkit.
+ */
 export type AnyPartStream = PartStream<Record<string, never>>;
 
+/**
+ * Stream of trajectory parts with the toolkit and metadata of a trajectory.
+ */
 export type Trajectory<Tools extends Record<string, Tool.Any>> = PartStream<Tools> &
-  Readonly<{ toolkit: Toolkit.Toolkit<Tools>; metadata: Metadata }>;
+  Readonly<{
+    /**
+     * The toolkit used to encode and decode tool parts.
+     */
+    toolkit: Toolkit.Toolkit<Tools>;
+    /**
+     * The metadata of the trajectory.
+     */
+    metadata: Metadata;
+  }>;
+
+/**
+ * Trajectory that also accepts tools outside the provided toolkit.
+ */
 export type Any = Trajectory<Record<string, never>>;
+
+/**
+ * Encoded stream of trajectory parts for serialization.
+ */
 export type TrajectoryEncoded = Stream.Stream<PartEncoded, TrajectoryError>;
 
+/**
+ * Creates a trajectory from a stream of parts and a toolkit.
+ *
+ * **Details**
+ *
+ * The metadata is decoded from its encoded form, and failures of the source
+ * stream are mapped to {@link StreamingError}.
+ *
+ * **Example** (Creating a trajectory)
+ *
+ * ```ts import.meta.vitest
+ * import { Prompt, Trajectory } from "@open-insight/core"
+ * import { Stream } from "effect"
+ * import { Toolkit } from "effect/unstable/ai"
+ *
+ * const trajectory = Trajectory.make(
+ *   Stream.make(Trajectory.promptPart(Prompt.make("Hello"))),
+ *   Toolkit.empty,
+ *   { name: "greeting" }
+ * )
+ * trajectory.metadata.name // => "greeting"
+ * ```
+ */
 export const make = <Tools extends Record<string, Tool.Any>, E>(
   parts: Stream.Stream<Part<Tools>, E>,
   toolkit: Toolkit.Toolkit<Tools>,
   metadata: MetadataEncoded = {},
 ): Trajectory<Tools> =>
-  Object.assign(parts.pipe(Stream.mapError(TrajectoryError.partStream)), {
+  Object.assign(parts.pipe(Stream.mapError(TrajectoryError.streaming)), {
     toolkit,
     metadata: Schema.decodeSync(Metadata)(metadata),
   });
 
+/**
+ * Encodes a trajectory into its serializable representation.
+ *
+ * **Details**
+ *
+ * Parts are encoded using the schema of the trajectory's toolkit, and encoding
+ * failures are mapped to {@link EncodeError}.
+ */
 export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any>>(
   trajectory: Trajectory<Tools>,
 ): Effect.fn.Return<
@@ -167,6 +391,15 @@ export const encode = Effect.fn(function* <Tools extends Record<string, Tool.Any
   );
 }, Stream.unwrap);
 
+/**
+ * Decodes a serialized trajectory using the provided toolkits.
+ *
+ * **Details**
+ *
+ * The toolkits are merged and used to decode the parts of the trajectory, and
+ * decoding failures are mapped to {@link DecodeError}. The returned trajectory
+ * carries the merged toolkit.
+ */
 export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolkit.Any>>(
   trajectory: TrajectoryEncoded,
   ...toolkits: Toolkits
@@ -188,6 +421,15 @@ export const decode = Effect.fn(function* <Toolkits extends ReadonlyArray<Toolki
   return Object.assign(parts, { toolkit }) as Trajectory<Toolkit.MergedTools<Toolkits>>;
 });
 
+/**
+ * Adds toolkits to a trajectory, decoding tool parts that were previously
+ * unknown.
+ *
+ * **Details**
+ *
+ * Tool parts outside the trajectory's toolkit are re-encoded and decoded against
+ * the merged toolkit, and decoding failures are mapped to {@link DecodeError}.
+ */
 export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkits: Toolkits) =>
   Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
     const merged = Toolkit.merge(trajectory.toolkit, ...toolkits);
@@ -224,15 +466,28 @@ export const toolkits = <Toolkits extends ReadonlyArray<Toolkit.Any>>(...toolkit
     return Object.assign(parts, { toolkit: merged, metadata: trajectory.metadata });
   });
 
+/**
+ * A tool call paired with the final result of that call.
+ */
 export type ToolTurn<Tools extends Record<string, Tool.Any>> = {
   [Name in keyof Tools]: Name extends string
     ? Readonly<{
+        /**
+         * The tool call part.
+         */
         call: Extract<Response.ToolCallParts<Tools>, { name: Name }>;
+        /**
+         * The final tool result part.
+         */
         result: Extract<Response.ToolResultParts<Tools>, { name: Name }>;
       }>
     : never;
 }[keyof Tools];
 
+/**
+ * Pairs a tool call with its result, or returns `undefined` when they do not
+ * name the same tool.
+ */
 export const toolTurn = <Tools extends Record<string, Tool.Any>>(
   call: Response.ToolCallParts<Tools>,
   result: Response.ToolResultParts<Tools>,
@@ -245,6 +500,14 @@ export const toolTurn = <Tools extends Record<string, Tool.Any>>(
   return { call, result } as ToolTurn<Tools>;
 };
 
+/**
+ * Emits a turn for every tool call of a trajectory that has a final result.
+ *
+ * **Details**
+ *
+ * Preliminary results, results without a matching call, and results whose tool
+ * name differs from the call are ignored.
+ */
 export const toolTurns = <Tools extends Record<string, Tool.Any>>(
   trajectory: Trajectory<Tools>,
 ): Stream.Stream<ToolTurn<Tools>, TrajectoryError> =>
@@ -293,6 +556,13 @@ export const toolTurns = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+/**
+ * Sets the metadata of a trajectory.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last usage.
+ */
 export const metadata = Function.dual<
   <T extends Any>(metadata: Metadata) => (trajectory: T) => T,
   <T extends Any>(trajectory: T, metadata: Metadata) => T
@@ -300,16 +570,38 @@ export const metadata = Function.dual<
   Object.assign(trajectory, { metadata }),
 );
 
+/**
+ * A prompt paired with the response parts produced for it.
+ */
 export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
+  /**
+   * The prompt of the turn.
+   */
   prompt: Prompt.Prompt;
+  /**
+   * The response parts produced for the prompt.
+   */
   response: Response.PartView<Tools>[];
 }>;
+
+/**
+ * Stream of session turns.
+ */
 export type Session<Tools extends Record<string, Tool.Any>> = Stream.Stream<
   SessionTurn<Tools>,
   TrajectoryError
 >;
 
 const SessionEnd = Symbol("open-insight/trajectory/SessionEnd");
+
+/**
+ * Groups the parts of a trajectory into session turns.
+ *
+ * **Details**
+ *
+ * A turn starts at a prompt part and collects the response parts that follow
+ * it. Response parts before the first prompt are ignored.
+ */
 export const toSession = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Session<Tools> =>
@@ -346,14 +638,37 @@ export const toSession = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+/**
+ * A prompt paired with the stream of response parts produced for it.
+ */
 export type StreamSessionTurn<Tools extends Record<string, Tool.Any>, E> = Readonly<{
+  /**
+   * The prompt of the turn.
+   */
   prompt: Prompt.Prompt;
+  /**
+   * The stream of response parts produced for the prompt.
+   */
   response: Stream.Stream<Response.AllPartsView<Tools>, E>;
 }>;
+
+/**
+ * Stream of streamed session turns.
+ */
 export type StreamSession<Tools extends Record<string, Tool.Any>, E> = Stream.Stream<
   StreamSessionTurn<Tools, E>,
   TrajectoryError
 >;
+
+/**
+ * Flattens a stream of streamed session turns into trajectory parts.
+ *
+ * **Details**
+ *
+ * Each turn contributes a prompt part followed by a response part for every
+ * response part of its stream, and failures of that stream are mapped to
+ * {@link StreamingError}.
+ */
 export const fromSession = <Tools extends Record<string, Tool.Any>, E>(
   session: StreamSession<Tools, E>,
   toolkit: Toolkit.Toolkit<Tools>,
@@ -367,7 +682,7 @@ export const fromSession = <Tools extends Record<string, Tool.Any>, E>(
           response.pipe(
             fold,
             Stream.map((response) => responsePartSchema.make({ response })),
-            Stream.mapError(TrajectoryError.partStream),
+            Stream.mapError(TrajectoryError.streaming),
           ),
         ),
       ),
@@ -375,6 +690,9 @@ export const fromSession = <Tools extends Record<string, Tool.Any>, E>(
   );
 };
 
+/**
+ * Folds a trajectory into the prompt that represents the conversation.
+ */
 export const toPrompt = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Effect.Effect<Prompt.Prompt, TrajectoryError> =>
@@ -386,6 +704,9 @@ export const toPrompt = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+/**
+ * Extracts the response parts of a trajectory, discarding prompt parts.
+ */
 export const toResponses = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Stream.Stream<Response.AllPartsView<Tools>, TrajectoryError> =>
@@ -399,6 +720,9 @@ export const toResponses = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+/**
+ * Sink that reduces a trajectory to its last finish part.
+ */
 export const finishPart: Sink.Sink<Option.Option<Response.FinishPart>, Part<any>> = Sink.reduce(
   () => Option.none<Response.FinishPart>(),
   (state, part) =>
@@ -407,6 +731,9 @@ export const finishPart: Sink.Sink<Option.Option<Response.FinishPart>, Part<any>
       : state,
 );
 
+/**
+ * Sink that reduces a trajectory to its last response metadata part.
+ */
 export const metadataPart: Sink.Sink<
   Option.Option<Response.ResponseMetadataPart>,
   AnyPart
@@ -418,6 +745,9 @@ export const metadataPart: Sink.Sink<
       : state,
 );
 
+/**
+ * Reports the usage of the last finish part of a trajectory.
+ */
 export const usage = (
   trajectory: AnyPartStream,
 ): Effect.Effect<Option.Option<Response.Usage>, TrajectoryError> =>
@@ -426,6 +756,9 @@ export const usage = (
     Effect.map((part) => Option.map(part, (p) => p.usage)),
   );
 
+/**
+ * Reports the finish reason of the last finish part of a trajectory.
+ */
 export const finishReason = (
   trajectory: AnyPartStream,
 ): Effect.Effect<Option.Option<Response.FinishReason>, TrajectoryError> =>
@@ -434,11 +767,24 @@ export const finishReason = (
     Effect.map((part) => Option.map(part, (p) => p.reason)),
   );
 
+/**
+ * Emits every response metadata part of a trajectory.
+ */
 export const responseMetadataParts = (
   trajectory: AnyPartStream,
 ): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
   trajectory.pipe(toResponses).pipe(Stream.filter((part) => part.type === "response-metadata"));
 
+/**
+ * Persists a trajectory to a path and returns the trajectory loaded back from
+ * that path.
+ *
+ * **Details**
+ *
+ * The file starts with the encoded metadata and the encoded toolkit, followed
+ * by one encoded part per line. Saving failures are mapped to {@link SaveError},
+ * and loading failures are mapped to {@link LoadError}.
+ */
 export const persist = (path: string) =>
   Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
     const store = yield* NdjsonStore.NdjsonStore;
