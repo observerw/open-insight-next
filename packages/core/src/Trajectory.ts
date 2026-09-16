@@ -9,7 +9,7 @@ import { Effect, Function, Match, Option, Result, Schema, Sink, Stream } from "e
 import { type Tool, Toolkit } from "effect/unstable/ai";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
-import * as NdjsonStore from "#/NdjsonStore.ts";
+import * as StreamStore from "#/StreamStore.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
 import * as ToolkitData from "#/Toolkit.ts";
 import { fold } from "#/internal/fold.ts";
@@ -787,7 +787,7 @@ export const responseMetadataParts = (
  */
 export const persist = (path: string) =>
   Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
-    const store = yield* NdjsonStore.NdjsonStore;
+    const store = yield* StreamStore.StreamStore;
     const partSchema = Part(trajectory.toolkit);
     const decodingContext = yield* Effect.context<typeof partSchema.DecodingServices>();
 

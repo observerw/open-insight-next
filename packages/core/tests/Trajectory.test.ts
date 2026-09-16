@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Match, Predicate, Schema, Sink, Stream } from "effect";
 import { Tool, Toolkit } from "effect/unstable/ai";
-import * as NdjsonStore from "#/NdjsonStore.ts";
+import * as NdjsonStore from "#/StreamStore.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import * as ToolkitData from "#/Toolkit.ts";

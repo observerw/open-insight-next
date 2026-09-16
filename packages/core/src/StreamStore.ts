@@ -2,7 +2,7 @@ import { Context, Effect, FileSystem, Formatter, Layer, Schema, Sink, Stream } f
 import { Ndjson } from "effect/unstable/encoding";
 
 export class SaveFailed extends Schema.TaggedError<SaveFailed>(
-  "open-insight/core/NdjsonStoreError/SaveFailed",
+  "open-insight/core/StreamStoreError/SaveFailed",
 )("SaveFailed", {
   cause: Schema.Defect(),
 }) {
@@ -12,7 +12,7 @@ export class SaveFailed extends Schema.TaggedError<SaveFailed>(
 }
 
 export class LoadFailed extends Schema.TaggedError<LoadFailed>(
-  "open-insight/core/NdjsonStoreError/LoadFailed",
+  "open-insight/core/StreamStoreError/LoadFailed",
 )("LoadFailed", {
   cause: Schema.Defect(),
 }) {
@@ -21,7 +21,7 @@ export class LoadFailed extends Schema.TaggedError<LoadFailed>(
   }
 }
 
-export type NdjsonStoreError = SaveFailed | LoadFailed;
+export type StreamStoreError = SaveFailed | LoadFailed;
 
 export interface LoadOptions {
   readonly offset?: number;
@@ -76,14 +76,14 @@ export const make = <E>(backend: Backend<E>): Service => {
   return { save, load };
 };
 
-export class NdjsonStore extends Context.Service<NdjsonStore, Service>()(
-  "open-insight/core/NdjsonStore",
+export class StreamStore extends Context.Service<StreamStore, Service>()(
+  "open-insight/core/StreamStore",
 ) {
-  static readonly layer: Layer.Layer<NdjsonStore, never, FileSystem.FileSystem> = Layer.effect(
-    NdjsonStore,
+  static readonly layer: Layer.Layer<StreamStore, never, FileSystem.FileSystem> = Layer.effect(
+    StreamStore,
     Effect.map(FileSystem.FileSystem, ({ sink, stream }) => make({ sink, stream })),
   );
 }
 
-export const layerFromBackend = <E>(backend: Backend<E>): Layer.Layer<NdjsonStore> =>
-  Layer.succeed(NdjsonStore, make(backend));
+export const layerFromBackend = <E>(backend: Backend<E>): Layer.Layer<StreamStore> =>
+  Layer.succeed(StreamStore, make(backend));
