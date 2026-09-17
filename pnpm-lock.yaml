@@ -182,6 +182,9 @@ catalogs:
     '@types/validator':
       specifier: ^13.15.10
       version: 13.15.10
+    avro-js:
+      specifier: ^1.12.2
+      version: 1.12.2
     chdb:
       specifier: ^3.3.0
       version: 3.3.0
@@ -191,6 +194,12 @@ catalogs:
     eta:
       specifier: ^4.6.0
       version: 4.6.0
+    hyparquet:
+      specifier: ^1.31.0
+      version: 1.31.0
+    hyparquet-writer:
+      specifier: ^0.16.9
+      version: 0.16.9
     picomatch:
       specifier: ^4.0.7
       version: 4.0.7
@@ -251,9 +260,21 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 'catalog:'
         version: 1.4.0(zod@3.25.76)
+      avro-js:
+        specifier: 'catalog:'
+        version: 1.12.2
+      chdb:
+        specifier: ^3.3.0
+        version: 3.3.0(zod@3.25.76)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.113
+      hyparquet:
+        specifier: 'catalog:'
+        version: 1.31.0
+      hyparquet-writer:
+        specifier: 'catalog:'
+        version: 0.16.9
       picomatch:
         specifier: 'catalog:'
         version: 4.0.7
@@ -1328,6 +1349,9 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
+  avro-js@1.12.2:
+    resolution: {integrity: sha512-SVfkg8nIQ0fYQL3a1HsgXUtBIX9M8Wym2YPQGZV6tBJy/YBC6tylt3gh1Np54C5duxRAm1nowT15eAxwmDYFpA==}
+
   before-after-hook@4.0.0:
     resolution: {integrity: sha512-q6tR3RPqIB1pMiTRMFcZwuG5T8vwp+vUvEG0vuI6B+Rikh5BfPp2fQ82c925FOs+b0lcFQ8CFrL+KbilfZFhOQ==}
 
@@ -1498,6 +1522,15 @@ packages:
   human-signals@8.0.1:
     resolution: {integrity: sha512-eKCa6bwnJhvxj14kZk5NCPc6Hb6BdsU9DZcOnmQKSnO1VKrfV0zCvtttPZUsBvjmNDn8rpcJfpwSYnHBjc95MQ==}
     engines: {node: '>=18.18.0'}
+
+  hyparquet-writer@0.16.9:
+    resolution: {integrity: sha512-VZvH4Vq9lQwZa/+1y4YrEwF9+FAe5pED+mVN4AHflCoFk5LG2RemMHW9iwVlVqug7fO3ATwEMSG68cr3uZAkjQ==}
+
+  hyparquet@1.29.2:
+    resolution: {integrity: sha512-2LxinZ8X0JqToST+9OXcy9t3t5Q7ZneMTkSqUx/36Hv18pCTk/N71IWZc7APTSNG1Me39l/jjEvzZSZ0R+Knbw==}
+
+  hyparquet@1.31.0:
+    resolution: {integrity: sha512-jd1eIm+dPFuJAHzgWWW+GXkTYoGXwTJpGreoQA4SYnsMBPO3cAhf+N1bt1+1kUseo5/81g5RBKjT+MZtif2C7Q==}
 
   index-to-position@1.2.0:
     resolution: {integrity: sha512-Yg7+ztRkqslMAS2iFaU+Oa4KTSidr63OsFGlOrJoW981kIYO3CGCS3wA95P1mUi/IVSJkn0D479KTJpVpvFNuw==}
@@ -2751,6 +2784,8 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
+  avro-js@1.12.2: {}
+
   before-after-hook@4.0.0: {}
 
   bingo-fs@0.5.6: {}
@@ -2911,6 +2946,14 @@ snapshots:
       lru-cache: 11.5.2
 
   human-signals@8.0.1: {}
+
+  hyparquet-writer@0.16.9:
+    dependencies:
+      hyparquet: 1.29.2
+
+  hyparquet@1.29.2: {}
+
+  hyparquet@1.31.0: {}
 
   index-to-position@1.2.0: {}
 

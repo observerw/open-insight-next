@@ -31,7 +31,8 @@ export type EvalError =
   | Harness.HarnessError
   | Trajectory.TrajectoryError
   | Grade.GradeError
-  | Metric.MetricError;
+  | Metric.MetricError
+  | StreamStore.StreamStoreError;
 
 const makeSessionStream = ({
   promptSession,
@@ -42,7 +43,7 @@ const makeSessionStream = ({
   promptSession: Prompt.Session;
   sandbox: Sandbox.Sandbox;
 }) =>
-  Stream.callback<Prompt.Prompt | Response.AllPartsView<any>, EvalError>(
+  Stream.callback<Trajectory.AllSessionPart<any>, EvalError>(
     Effect.fn(function* (queue) {
       let current: Option.Option<Prompt.Prompt> = Option.some(promptSession.init);
 
@@ -71,7 +72,7 @@ const makeSessionStream = ({
 
 type SessionOptions = Readonly<{
   id: Event.SessionID;
-  sessionStream: Trajectory.SessionStream<any, EvalError>;
+  sessionStream: Stream.Stream<Trajectory.AllSessionPart<any>, EvalError>;
 }>;
 const makeSession = Effect.fn(function* ({ id, sessionStream }: SessionOptions) {
   const finishPartRef = yield* Ref.make<Option.Option<Response.FinishPart>>(Option.none());
@@ -117,17 +118,13 @@ type TrailOptions = Readonly<{
   grader: Grade.Grader<any>;
 }>;
 const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptions) {
-  const { resources, prompt: promptSession, snapshot, metrickit } = task;
-
   const store = yield* StreamStore.StreamStore;
   const trailCache = yield* ensureTrailCache(id);
   if (trailCache.exists) {
-    // const [stream, streamForResult] = yield* store
-    //   .load(Event.TrailSuccessEvent)(trailCache.file)
-    //   .pipe(Stream.broadcastN({ n: 2, capacity: "unbounded" }));
-    // const trailResult = yield* Stream.run(streamForResult, trailResultSink);
-    // return stream.pipe(Stream.concat(Stream.fail(trailResult)));
+    return store.load(Event.TrailEvent)(trailCache.file);
   }
+
+  const { resources, prompt: promptSession, snapshot, metrickit } = task;
 
   const sbxSession = yield* harness.runSandbox(snapshot, { resources });
   const sandbox = sbxSession.sandbox;
@@ -158,7 +155,7 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
         Stream.share({ capacity: "unbounded" }),
       );
       const sessionEvents = makeSession({ id: sessionID, sessionStream });
-      const trajectory = Trajectory.fromSessionStream(sessionStream, Toolkit.empty);
+      const trajectory = Trajectory.fromSession(sessionStream, Toolkit.empty);
 
       yield* Queue.offer(trajectoryQueue, trajectory);
 
@@ -166,7 +163,7 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
         retry: Grade.Retry,
       ): Stream.Stream<
         Event.TrailSuccessEvent,
-        Event.TrailFailedEvent | Task.TrailResult<any> | EvalError,
+        Event.TrailFailedEvent | EvalError,
         StreamStore.StreamStore
       > =>
         Effect.gen(function* () {
@@ -194,25 +191,11 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
       const endEvents = Effect.gen(function* () {
         const grade = yield* gradeSession;
         const endEvent = Stream.succeed(Event.TrailEndEvent.make({ id, grade }));
-
-        const sessions = yield* Queue.end(sessionResultQueue).pipe(
-          Effect.andThen(Queue.collect(sessionResultQueue)),
-        );
-        const result = Stream.fail(new Task.TrailResult<any>({ grade, sessions }));
-
-        return Stream.empty.pipe(Stream.concat(endEvent), Stream.concat(result));
+        return Stream.empty.pipe(Stream.concat(endEvent));
       }).pipe(Stream.unwrap, Stream.catchTag("Retry", makeRetry));
 
       return Stream.empty.pipe(Stream.concat(sessionEvents), Stream.concat(endEvents));
-    }).pipe(
-      Stream.unwrap,
-      Stream.catchTag("SessionResult", (result) =>
-        Effect.gen(function* () {
-          yield* Queue.offer(sessionResultQueue, result);
-          return Stream.empty;
-        }).pipe(Stream.unwrap),
-      ),
-    );
+    }).pipe(Stream.unwrap);
 
   const startEvent = Stream.succeed(Event.TrailStartEvent.make({ id }));
   const attemptEvents = makeAttempt({ promptSession, agentSession, sessionIdx: 0 });

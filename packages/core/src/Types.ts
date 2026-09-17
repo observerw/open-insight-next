@@ -1,3 +1,5 @@
+import type { Simplify } from "effect/Types";
+
 export function assertNonNull<T>(val: T): asserts val is NonNullable<T> {
   if (val === null || val === undefined) {
     throw new Error("Value cannot be null or undefined");
@@ -24,3 +26,9 @@ export type IndexByKey<T, Key extends PropertyKey> =
           readonly [Value in Item extends Record<Key, PropertyKey> ? Item[Key] : never]: Item;
         }
       : never;
+
+interface Test {
+  a: number;
+}
+
+type Overrided = Override<Test, { a: string }>;

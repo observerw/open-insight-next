@@ -45,7 +45,11 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "catalog:",
+    "avro-js": "catalog:",
+    "chdb": "^3.3.0",
     "effect": "catalog:",
+    "hyparquet": "catalog:",
+    "hyparquet-writer": "catalog:",
     "picomatch": "catalog:",
     "uuid": "catalog:",
     "validator": "catalog:"

@@ -5,11 +5,9 @@ import type { TrailID } from "#/Event.ts";
 const NAMESPACE = "eval" as const;
 
 export const ensureDir = Effect.fn(function* (evalID: string) {
-  const git = yield* Git.Git;
   const path = yield* Path.Path;
 
-  const commit = yield* git.commitHash;
-  return yield* Cache.ensureDir({ subdir: path.join(NAMESPACE, commit, evalID) });
+  return yield* Cache.ensureDir({ subdir: path.join(NAMESPACE, evalID) });
 }, Effect.provide(Git.Git.layer));
 
 export const ensureTrailCache = Effect.fn(function* ({ evalID, taskID, trailIdx }: TrailID) {

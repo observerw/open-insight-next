@@ -1,11 +1,11 @@
 ---
 name: error-architecture
-description: Design or review a public Effect error model, including Schema.TaggedError or Schema.Error classes, reason unions, boundary classification, serialization, and compatibility changes.
+description: Design or review a public Effect error model, including Schema.TaggedError or Schema.Error classes, reason unions, boundary classification, serialization, and compatibility changes. Also covers the bootstrap placeholder a new module uses before that design pass.
 ---
 
 # Effect Error Architecture
 
-Use this skill when a module's public Effect error channel is being designed, reviewed, or changed. Produce an implementable result: stable tags or schema identity, only evidence-backed fields and reasons, constructors/classifiers, handling guidance, and focused tests. Do not give generic advice about error handling.
+Use this skill when a module's public Effect error channel is being designed, reviewed, or changed. Produce an implementable result: stable tags or schema identity, only evidence-backed fields and reasons, constructors/classifiers, handling guidance, and focused tests. When the module is still being built and has no observed failure sites, produce the bootstrap placeholder instead and defer the design. Do not give generic advice about error handling.
 
 ## Non-negotiable evidence gate
 
@@ -25,7 +25,19 @@ Hard rules:
 - Do not infer a public reason from an internal phase. Malformed bytes, parsing, transport, and provider exception names become separate public reasons only when callers have different semantic actions or the existing contract requires that distinction.
 - Do not add a wrapper or `reason` union for visual consistency. One observed public failure normally uses one error class; an empty field shape is valid.
 
+## Bootstrap: implement first, design later
+
+The evidence gate needs observed failure sites. It therefore does not apply while a new module's behavior is still being discovered: designing the error model now produces invented reasons, and the module will keep changing underneath it.
+
+Phase 1 (bootstrap): give the module one placeholder error class carrying only `cause`, implement the business logic, and fail at each expected failure site with that class and a `new Error("<domain condition>")` as the cause. Add no reason union, per-site error class, foreign error type, extra field, or serialization schema.
+
+Phase 2 (design pass): once the module's public behavior has settled, tell the user that the error design should start now, then run the normal process — inventory every failure site, group by business semantics, and replace each seed with a real reason and field design.
+
+Load `references/bootstrap.md` for the placeholder shape, the rules that keep the design pass cheap, and the maturity triggers.
+
 ## Route the work
+
+First decide the phase: a module in bootstrap follows the section above; a module in the design pass continues here.
 
 1. Inspect only the target module's current error channel, construction/classification sites, consumers, and nearby tests that affect the task. Preserve unrelated user changes. Start with an evidence inventory and explicitly list relevant failures that are _not_ observed.
 2. State the module promise and caller actions in domain language. Group outcomes only when the evidence shows the same handling, retry/safety policy, user/API meaning, and required fields.
@@ -50,6 +62,8 @@ Before declaring the task complete, verify that:
 - interruption and defects are not accidentally converted into ordinary public failures;
 - reason handling uses the API that matches the actual shape (`catchTag`/`catchTags` for independent tagged errors, `catchReason`/`catchReasons` for a wrapper with nested reasons, or deliberate `unwrapReason` when wrapper context is intentionally discarded);
 - every accepted reason has a relevant non-match or preservation test, and no invented failure category is added just to complete a taxonomy;
+- in bootstrap mode, the public channel exposes exactly one placeholder class with only `cause`, no ad-hoc error class or foreign error type leaks into it, interruption and defects are untouched, and the user has been told when the design pass is due;
+- in a design pass, every bootstrap seed is replaced by an evidence-backed reason or recorded as intentionally merged or dropped, and no placeholder class or bare `new Error()` remains at a classified site;
 - schema encode/decode behavior and old payload compatibility are covered only when that boundary exists, with actual encoded output checked for redaction;
 - focused type checks, tests, and lint have been run according to the repository instructions, or any unavailable validation is reported honestly;
 - the final result includes: evidence table, rejected candidates, smallest shape, Effect source landing, handling guidance, focused test matrix, and validation result.

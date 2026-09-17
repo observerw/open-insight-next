@@ -484,18 +484,13 @@ export type ToolTurn<Tools extends Record<string, Tool.Any>> = {
     : never;
 }[keyof Tools];
 
-/**
- * Pairs a tool call with its result, or returns `undefined` when they do not
- * name the same tool.
- */
-export const toolTurn = <Tools extends Record<string, Tool.Any>>(
+const toolTurn = <Tools extends Record<string, Tool.Any>>(
   call: Response.ToolCallParts<Tools>,
   result: Response.ToolResultParts<Tools>,
 ): ToolTurn<Tools> | undefined => {
   if (call.name !== result.name) {
     return undefined;
   }
-
   // SAFETY: Equal tool names correlate both union members to the same toolkit entry.
   return { call, result } as ToolTurn<Tools>;
 };
@@ -511,7 +506,7 @@ export const toolTurn = <Tools extends Record<string, Tool.Any>>(
 export const toolTurns = <Tools extends Record<string, Tool.Any>>(
   trajectory: Trajectory<Tools>,
 ): Stream.Stream<ToolTurn<Tools>, TrajectoryError> =>
-  toResponses(trajectory).pipe(
+  responses(trajectory).pipe(
     Stream.mapAccum<
       Map<string, Response.ToolCallParts<Tools>>,
       Response.AllPartsView<Tools>,
@@ -573,7 +568,7 @@ export const metadata = Function.dual<
 /**
  * A prompt paired with the response parts produced for it.
  */
-export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
+export type PromptTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
   /**
    * The prompt of the turn.
    */
@@ -587,8 +582,8 @@ export type SessionTurn<Tools extends Record<string, Tool.Any>> = Readonly<{
 /**
  * Stream of session turns.
  */
-export type Session<Tools extends Record<string, Tool.Any>> = Stream.Stream<
-  SessionTurn<Tools>,
+export type PromptTurnStream<Tools extends Record<string, Tool.Any>> = Stream.Stream<
+  PromptTurn<Tools>,
   TrajectoryError
 >;
 
@@ -602,15 +597,15 @@ const SessionEnd = Symbol("open-insight/trajectory/SessionEnd");
  * A turn starts at a prompt part and collects the response parts that follow
  * it. Response parts before the first prompt are ignored.
  */
-export const toSession = <Tools extends Record<string, Tool.Any>>(
+export const promptTurns = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
-): Session<Tools> =>
+): PromptTurnStream<Tools> =>
   trajectory.pipe(
     Stream.concat(Stream.succeed(SessionEnd)),
     Stream.mapAccum<
-      SessionTurn<Tools> | undefined,
+      PromptTurn<Tools> | undefined,
       Part<Tools> | typeof SessionEnd,
-      SessionTurn<Tools>
+      PromptTurn<Tools>
     >(
       () => undefined,
       (turn, part) => {
@@ -622,7 +617,7 @@ export const toSession = <Tools extends Record<string, Tool.Any>>(
           const next = {
             prompt: Prompt.fromMessages(part.messages),
             response: [],
-          } satisfies SessionTurn<Tools>;
+          } satisfies PromptTurn<Tools>;
 
           return [next, turn === undefined ? [] : [turn]];
         }
@@ -640,15 +635,28 @@ export const toSession = <Tools extends Record<string, Tool.Any>>(
 
 export type SessionPart<Tools extends Record<string, Tool.Any>> =
   | Prompt.Prompt
-  | Response.AllPartsView<Tools>;
+  | Response.PartView<Tools>;
 
 /**
- * Stream of streamed session turns.
+ * Converts a trajectory into a stream of prompts and response parts.
+ *
+ * **Details**
+ *
+ * Prompt parts are turned back into prompts and response parts are emitted
+ * unchanged, which is the inverse of {@link fromSession}.
  */
-export type SessionStream<Tools extends Record<string, Tool.Any>, E> = Stream.Stream<
-  SessionPart<Tools>,
-  E
->;
+export const session = <Tools extends Record<string, Tool.Any>>(
+  trajectory: PartStream<Tools>,
+): Stream.Stream<SessionPart<Tools>, TrajectoryError> =>
+  trajectory.pipe(
+    Stream.map((part) =>
+      part._tag === "Prompt" ? Prompt.fromMessages(part.messages) : part.response,
+    ),
+  );
+
+export type AllSessionPart<Tools extends Record<string, Tool.Any>> =
+  | Prompt.Prompt
+  | Response.AllPartsView<Tools>;
 
 /**
  * Flattens a stream of prompts and streamed response parts into a trajectory.
@@ -657,10 +665,12 @@ export type SessionStream<Tools extends Record<string, Tool.Any>, E> = Stream.St
  *
  * Every prompt contributes a prompt part and clears the parts accumulated for
  * the previous turn, while streamed text and reasoning parts are folded into a
- * single part once their stream ends.
+ * single part once their stream ends. Source stream failures are kept as-is
+ * when they already are trajectory errors, and mapped to
+ * {@link StreamingError} otherwise.
  */
-export const fromSessionStream = <Tools extends Record<string, Tool.Any>, E>(
-  session: SessionStream<Tools, E>,
+export const fromSession = <Tools extends Record<string, Tool.Any>, E>(
+  session: Stream.Stream<AllSessionPart<Tools>, E>,
   toolkit: Toolkit.Toolkit<Tools>,
   metadata: MetadataEncoded = {},
 ): Trajectory<Tools> => {
@@ -670,7 +680,9 @@ export const fromSessionStream = <Tools extends Record<string, Tool.Any>, E>(
     Stream.map((part): Part<Tools> =>
       Prompt.isPrompt(part) ? promptPart(part) : responsePartSchema.make({ response: part }),
     ),
-    Stream.mapError(TrajectoryError.streaming),
+    Stream.mapError((cause) =>
+      cause instanceof TrajectoryError ? cause : TrajectoryError.streaming(cause),
+    ),
   );
 
   return Object.assign(parts, { toolkit, metadata: Schema.decodeSync(Metadata)(metadata) });
@@ -679,10 +691,10 @@ export const fromSessionStream = <Tools extends Record<string, Tool.Any>, E>(
 /**
  * Folds a trajectory into the prompt that represents the conversation.
  */
-export const toPrompt = <Tools extends Record<string, Tool.Any>>(
+export const prompt = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Effect.Effect<Prompt.Prompt, TrajectoryError> =>
-  toSession(trajectory).pipe(
+  promptTurns(trajectory).pipe(
     Stream.runFold(
       () => Prompt.empty,
       (curr, { prompt, response }) =>
@@ -693,7 +705,7 @@ export const toPrompt = <Tools extends Record<string, Tool.Any>>(
 /**
  * Extracts the response parts of a trajectory, discarding prompt parts.
  */
-export const toResponses = <Tools extends Record<string, Tool.Any>>(
+export const responses = <Tools extends Record<string, Tool.Any>>(
   trajectory: PartStream<Tools>,
 ): Stream.Stream<Response.AllPartsView<Tools>, TrajectoryError> =>
   trajectory.pipe(
@@ -759,7 +771,7 @@ export const finishReason = (
 export const responseMetadataParts = (
   trajectory: AnyPartStream,
 ): Stream.Stream<Response.ResponseMetadataPart, TrajectoryError> =>
-  trajectory.pipe(toResponses).pipe(Stream.filter((part) => part.type === "response-metadata"));
+  trajectory.pipe(responses).pipe(Stream.filter((part) => part.type === "response-metadata"));
 
 /**
  * Persists a trajectory to a path and returns the trajectory loaded back from

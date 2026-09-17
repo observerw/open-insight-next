@@ -42,12 +42,12 @@ const mergeMetadata = (
  * single response part once their stream ends.
  */
 export const foldSession = <Tools extends Record<string, Tool.Any>, E>(
-  session: Stream.Stream<Trajectory.SessionPart<Tools>, E>,
+  session: Stream.Stream<Trajectory.AllSessionPart<Tools>, E>,
 ): Stream.Stream<Prompt.Prompt | Response.PartView<Tools>, E> =>
   session.pipe(
     Stream.mapAccum<
       FoldState,
-      Trajectory.SessionPart<Tools>,
+      Trajectory.AllSessionPart<Tools>,
       Prompt.Prompt | Response.PartView<Tools>
     >(
       () => ({ text: new Map(), reasoning: new Map() }),

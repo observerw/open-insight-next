@@ -25,111 +25,107 @@ type TaskResultsOf<Tasks extends Record<string, Task.Any>> = Readonly<{
   [K in keyof Tasks]: Task.ConfigOf<Tasks[K]>["result"]["Type"];
 }>;
 
+type ReduceExec<Tasks extends Record<string, Task.Any>, S extends Schema.Constraint> = (
+  tasks: TaskResultsOf<Tasks>,
+) => Effect.Effect<BenchResult<NoInfer<S>>, BenchError>;
+
 export type Reducer<
   Tasks extends Record<string, Task.Any>,
   S extends Schema.Constraint,
 > = Readonly<{
-  exec: (tasks: TaskResultsOf<Tasks>) => Effect.Effect<BenchResult<NoInfer<S>>, BenchError>;
   schema: S;
+  exec: ReduceExec<Tasks, S>;
 }>;
 
-export interface Config<S extends Schema.Constraint = Schema.Constraint> {
-  readonly result: S;
-}
+export type AnyConfig = Readonly<{
+  tasks: Record<string, Task.Any>;
+  result: Schema.Constraint;
+}>;
 
-export class Bench<
-  ID extends string,
-  Tasks extends Record<string, Task.Any>,
-  C extends Config,
-> extends Data.Class<{
+export class Bench<ID extends string, Config extends AnyConfig> extends Data.Class<{
   id: ID;
   metadata: Metadata;
 
-  tasks: Tasks;
-  reducer: Reducer<Tasks, C["result"]>;
+  tasks: Config["tasks"];
+  reducer: Reducer<Config["tasks"], Config["result"]>;
 }> {}
 
-export type Any = Bench<any, any, any>;
-export type IDOf<B> = B extends Bench<infer ID, any, any> ? ID : never;
-export type TasksOf<B> = B extends Bench<any, infer Tasks, any> ? Tasks : never;
-export type ConfigOf<B> = B extends Bench<any, any, infer C> ? C : never;
+export type Any = Bench<any, any>;
 
-type Options<Tasks extends Record<string, Task.Any>, S extends Schema.Constraint> = Omit<
-  MetadataEncoded,
-  "id"
-> &
-  Readonly<{
-    reducer: Reducer<Tasks, S>;
-  }>;
+type Options = Omit<MetadataEncoded, "id">;
 
-export const fromArray = <
-  ID extends string,
-  Tasks extends ReadonlyArray<Task.Any>,
-  S extends Schema.Constraint,
->(
+export const fromArray = <ID extends string, Tasks extends ReadonlyArray<Task.Any>>(
   id: ID,
   tasks: Tasks,
-  options: Options<Types.IndexByKey<Tasks, "id">, S>,
-): Bench<ID, Types.IndexByKey<Tasks, "id">, Config<S>> => {
+  options: Options,
+) => {
   const metadata = Schema.decodeSync(Metadata)({ id, ...options });
 
-  return new Bench<ID, Types.IndexByKey<Tasks, "id">, Config<S>>({
+  const resultSchema = Schema.Struct(
+    Object.fromEntries(
+      tasks.map((task): [string, Schema.Constraint] => [task.id, task.reducer.schema]),
+    ),
+  );
+
+  const reducer = {
+    schema: resultSchema,
+    exec: (results) => Effect.succeed({ id, result: results }),
+  } satisfies Reducer<Types.IndexByKey<Tasks, "id">, typeof resultSchema>;
+
+  return new Bench<ID, { tasks: Types.IndexByKey<Tasks, "id">; result: typeof resultSchema }>({
     id,
     metadata,
     tasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
-    reducer: options.reducer,
+    reducer,
   });
 };
 
-export const make = <
-  ID extends string,
-  Tasks extends ReadonlyArray<Task.Any>,
-  S extends Schema.Constraint,
->(
+export const make = <ID extends string, Tasks extends ReadonlyArray<Task.Any>>(
   id: ID,
-  options: Options<Types.IndexByKey<Tasks, "id">, S>,
+  options: Options,
   ...tasks: Tasks
-): Bench<ID, Types.IndexByKey<Tasks, "id">, Config<S>> =>
-  fromArray<ID, Tasks, S>(id, tasks, options);
+) => fromArray<ID, Tasks>(id, tasks, options);
 
-export const mapTasks = <
-  ID extends string,
-  Tasks extends Record<string, Task.Any>,
-  C extends Config,
->(
-  bench: Bench<ID, Tasks, C>,
-  mapper: (tasks: Tasks, bench: Bench<ID, Tasks, C>) => Tasks,
-): Bench<ID, Tasks, C> =>
-  new Bench<ID, Tasks, C>({
+export const reducer =
+  <S extends Schema.Constraint>(schema: S, exec: ReduceExec<Record<string, Task.Any>, S>) =>
+  <ID extends string, C extends AnyConfig>(bench: Bench<ID, C>) =>
+    new Bench<ID, Types.Override<C, { result: S }>>({
+      id: bench.id,
+      metadata: bench.metadata,
+      tasks: bench.tasks,
+      reducer: { schema, exec },
+    });
+
+export const mapTasks = <ID extends string, Config extends AnyConfig>(
+  bench: Bench<ID, Config>,
+  mapper: (tasks: Config["tasks"], bench: Bench<ID, Config>) => Config["tasks"],
+): Bench<ID, Config> =>
+  new Bench<ID, Config>({
     id: bench.id,
     metadata: bench.metadata,
     tasks: mapper(bench.tasks, bench),
     reducer: bench.reducer,
   });
 
-export const mapTasksEffect = <
-  ID extends string,
-  Tasks extends Record<string, Task.Any>,
-  C extends Config,
-  E,
-  R,
->(
-  bench: Bench<ID, Tasks, C>,
-  mapper: (tasks: Tasks, bench: Bench<ID, Tasks, C>) => Effect.Effect<Tasks, E, R>,
-): Effect.Effect<Bench<ID, Tasks, C>, E, R> =>
+export const mapTasksEffect = <ID extends string, Config extends AnyConfig, E, R>(
+  bench: Bench<ID, Config>,
+  mapper: (
+    tasks: Config["tasks"],
+    bench: Bench<ID, Config>,
+  ) => Effect.Effect<Config["tasks"], E, R>,
+): Effect.Effect<Bench<ID, Config>, E, R> =>
   mapper(bench.tasks, bench).pipe(Effect.map((tasks) => mapTasks(bench, () => tasks)));
 
 export const mapTask = <
   ID extends string,
-  Tasks extends Record<string, Task.Any>,
-  C extends Config,
-  Key extends keyof Tasks,
+  Config extends AnyConfig,
+  Key extends keyof Config["tasks"],
 >(
-  bench: Bench<ID, Tasks, C>,
+  bench: Bench<ID, Config>,
   id: Key,
-  mapper: (task: Tasks[Key], bench: Bench<ID, Tasks, C>) => Tasks[Key],
-): Bench<ID, Tasks, C> =>
-  new Bench<ID, Tasks, C>({
+  mapper: (task: Config["tasks"][Key], bench: Bench<ID, Config>) => Config["tasks"][Key],
+): Bench<ID, Config> =>
+  new Bench<ID, Config>({
     id: bench.id,
     metadata: bench.metadata,
     tasks: { ...bench.tasks, [id]: mapper(bench.tasks[id], bench) },
@@ -138,14 +134,16 @@ export const mapTask = <
 
 export const mapTaskEffect = <
   ID extends string,
-  Tasks extends Record<string, Task.Any>,
-  C extends Config,
-  Key extends keyof Tasks,
+  Config extends AnyConfig,
+  Key extends keyof Config["tasks"],
   E,
   R,
 >(
-  bench: Bench<ID, Tasks, C>,
+  bench: Bench<ID, Config>,
   id: Key,
-  mapper: (task: Tasks[Key], bench: Bench<ID, Tasks, C>) => Effect.Effect<Tasks[Key], E, R>,
-): Effect.Effect<Bench<ID, Tasks, C>, E, R> =>
+  mapper: (
+    task: Config["tasks"][Key],
+    bench: Bench<ID, Config>,
+  ) => Effect.Effect<Config["tasks"][Key], E, R>,
+): Effect.Effect<Bench<ID, Config>, E, R> =>
   mapper(bench.tasks[id], bench).pipe(Effect.map((task) => mapTask(bench, id, () => task)));

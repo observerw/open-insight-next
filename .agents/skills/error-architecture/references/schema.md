@@ -68,7 +68,7 @@ If there is no persistence, serialization, or transport contract, do not invent 
 
 Test actual encoded output when a schema boundary exists. Assert that native values, secrets, and unbounded payloads cannot escape. Set `wrapper.cause = reason` only when the nested reason is intentionally the runtime cause; otherwise preserve native diagnostics separately and document that choice.
 
-`Schema.Defect()` is a schema for unexpected values when carrying defects across a JSON boundary; it is not evidence that a public module error should expose arbitrary native causes.
+`Schema.Defect()` is a schema for unexpected values when carrying defects across a JSON boundary; it is not evidence that a public module error should expose arbitrary native causes. A bootstrap placeholder (`bootstrap.md`) is the one place it belongs by default, and it is runtime-only.
 
 ## Field contracts
 

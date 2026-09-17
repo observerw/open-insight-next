@@ -1,5 +1,15 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Match, Predicate, Schema, Sink, Stream } from "effect";
+import {
+  Effect,
+  FileSystem,
+  Layer,
+  Match,
+  PlatformError,
+  Predicate,
+  Schema,
+  Sink,
+  Stream,
+} from "effect";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import * as NdjsonStore from "#/StreamStore.ts";
 import * as Prompt from "#/Prompt.ts";
@@ -20,7 +30,7 @@ it.effect("groups trajectory parts into session turns", () =>
       Trajectory.promptPart(secondPrompt),
     ]);
 
-    const turns = yield* Trajectory.toSession(trajectory).pipe(
+    const turns = yield* Trajectory.promptTurns(trajectory).pipe(
       Stream.runCollect,
       Effect.map((turns) => Array.from(turns)),
     );
@@ -41,7 +51,7 @@ it.effect("preserves trajectory failures while grouping session turns", () =>
       Trajectory.promptPart(Prompt.make("prompt")),
     ).pipe(Stream.concat(Stream.fail(error)));
 
-    const observed = yield* Trajectory.toSession(trajectory).pipe(Stream.runDrain, Effect.flip);
+    const observed = yield* Trajectory.promptTurns(trajectory).pipe(Stream.runDrain, Effect.flip);
 
     assert.strictEqual(observed, error);
   }),
@@ -65,7 +75,7 @@ it.effect("creates ordered trajectory parts and folds streamed responses", () =>
       },
     });
 
-    const session: Trajectory.SessionStream<{}> = Stream.make(
+    const session: Stream.Stream<Trajectory.AllSessionPart<{}>> = Stream.make(
       firstPrompt,
       Response.makePart("text-start", { id: "text-1" }),
       Response.makePart("text-delta", { id: "text-1", delta: "hello " }),
@@ -76,7 +86,7 @@ it.effect("creates ordered trajectory parts and folds streamed responses", () =>
       Response.makePart("text", { text: "done" }),
     );
 
-    const parts = yield* Trajectory.fromSessionStream(session, Toolkit.empty).pipe(
+    const parts = yield* Trajectory.fromSession(session, Toolkit.empty).pipe(
       Stream.runCollect,
       Effect.map((parts) => Array.from(parts)),
     );
@@ -110,11 +120,12 @@ it.effect("preserves session failures while folding streamed parts", () =>
     const error = Trajectory.TrajectoryError.streaming(cause);
     const observed: Array<Trajectory.AnyPart> = [];
 
-    const session: Trajectory.SessionStream<{}> = Stream.make(Prompt.make("prompt")).pipe(
-      Stream.concat(Stream.fail(error)),
-    );
+    const session: Stream.Stream<
+      Trajectory.AllSessionPart<{}>,
+      Trajectory.TrajectoryError
+    > = Stream.make(Prompt.make("prompt")).pipe(Stream.concat(Stream.fail(error)));
 
-    const failure = yield* Trajectory.fromSessionStream(session, Toolkit.empty).pipe(
+    const failure = yield* Trajectory.fromSession(session, Toolkit.empty).pipe(
       Stream.tap((part) =>
         Effect.sync(() => {
           observed.push(part);
@@ -135,10 +146,46 @@ it.effect("preserves session failures while folding streamed parts", () =>
   }),
 );
 
+it.effect("converts trajectory parts into session parts", () =>
+  Effect.gen(function* () {
+    const prompt = Prompt.make("prompt");
+    const response = Response.makePart("text", { text: "answer" });
+
+    const trajectory = Stream.fromIterable<Trajectory.AnyPart>([
+      Trajectory.promptPart(prompt),
+      Trajectory.responsePart(response),
+    ]);
+
+    const parts = yield* Trajectory.session(trajectory).pipe(
+      Stream.runCollect,
+      Effect.map((parts) => Array.from(parts)),
+    );
+
+    assert.deepStrictEqual(
+      parts.map((part) => (Prompt.isPrompt(part) ? part.content : part)),
+      [prompt.content, response],
+    );
+  }),
+);
+
+it.effect("preserves trajectory failures while converting session parts", () =>
+  Effect.gen(function* () {
+    const error = Trajectory.TrajectoryError.streaming(new Error("trajectory failed"));
+
+    const trajectory = Stream.succeed<Trajectory.AnyPart>(
+      Trajectory.promptPart(Prompt.make("prompt")),
+    ).pipe(Stream.concat(Stream.fail(error)));
+
+    const observed = yield* Trajectory.session(trajectory).pipe(Stream.runDrain, Effect.flip);
+
+    assert.strictEqual(observed, error);
+  }),
+);
+
 it("carries the toolkit and metadata of the trajectory", () => {
   const toolkit = Toolkit.empty;
 
-  const trajectory = Trajectory.fromSessionStream(Stream.empty, toolkit, { name: "session" });
+  const trajectory = Trajectory.fromSession(Stream.empty, toolkit, { name: "session" });
 
   assert.strictEqual(trajectory.toolkit, toolkit);
   assert.strictEqual(trajectory.metadata.name, "session");
@@ -354,23 +401,30 @@ it.effect("maps toolkit decoding failures to trajectory decode errors", () =>
   }),
 );
 
+const ndjsonStore = (
+  fileSystem: Layer.Layer<FileSystem.FileSystem>,
+): Layer.Layer<NdjsonStore.StreamStore> =>
+  NdjsonStore.StreamStore.layer.pipe(Layer.provide(fileSystem));
+
 const memoryStore = () => {
   const files = new Map<string, Array<Uint8Array>>();
 
   return {
     files,
-    layer: NdjsonStore.layerFromBackend({
-      sink: (path) => {
-        files.set(path, []);
+    layer: ndjsonStore(
+      FileSystem.layerNoop({
+        sink: (path) => {
+          files.set(path, []);
 
-        return Sink.forEach((chunk: Uint8Array) =>
-          Effect.sync(() => {
-            files.get(path)?.push(chunk.slice());
-          }),
-        );
-      },
-      stream: (path) => Stream.fromIterable(files.get(path) ?? []),
-    }),
+          return Sink.forEach((chunk: Uint8Array) =>
+            Effect.sync(() => {
+              files.get(path)?.push(chunk.slice());
+            }),
+          );
+        },
+        stream: (path) => Stream.fromIterable(files.get(path) ?? []),
+      }),
+    ),
   };
 };
 
@@ -476,12 +530,7 @@ it("constructs, handles, and safely encodes persistence reasons", () => {
 
 it.effect("maps store writes to save errors", () =>
   Effect.gen(function* () {
-    const cause = new Error("write failed");
-
-    const layer = NdjsonStore.layerFromBackend({
-      sink: () => Sink.fail(cause),
-      stream: () => Stream.empty,
-    });
+    const layer = ndjsonStore(FileSystem.layerNoop({}));
 
     const trajectory = Trajectory.make(Stream.empty, Toolkit.empty);
 
@@ -500,10 +549,12 @@ it.effect("maps store writes to save errors", () =>
 );
 
 it.effect("maps invalid persisted headers to load errors", () => {
-  const layer = NdjsonStore.layerFromBackend({
-    sink: () => Sink.forEach(() => Effect.void),
-    stream: () => Stream.succeed(new TextEncoder().encode("{}\n")),
-  });
+  const layer = ndjsonStore(
+    FileSystem.layerNoop({
+      sink: () => Sink.forEach(() => Effect.void),
+      stream: () => Stream.succeed(new TextEncoder().encode("{}\n")),
+    }),
+  );
 
   const trajectory = Trajectory.make(Stream.empty, Toolkit.empty);
 
@@ -523,25 +574,33 @@ it.effect("maps invalid persisted headers to load errors", () => {
 
 it.effect("maps persisted part reads to load errors", () => {
   const files = new Map<string, Array<Uint8Array>>();
-  const cause = new Error("read failed");
+
+  const cause = PlatformError.badArgument({
+    module: "FileSystem",
+    method: "stream",
+    description: "read failed",
+  });
+
   let reads = 0;
 
-  const layer = NdjsonStore.layerFromBackend({
-    sink: (path) => {
-      files.set(path, []);
+  const layer = ndjsonStore(
+    FileSystem.layerNoop({
+      sink: (path) => {
+        files.set(path, []);
 
-      return Sink.forEach((chunk: Uint8Array) =>
-        Effect.sync(() => {
-          files.get(path)?.push(chunk.slice());
-        }),
-      );
-    },
-    stream: (path) => {
-      reads += 1;
+        return Sink.forEach((chunk: Uint8Array) =>
+          Effect.sync(() => {
+            files.get(path)?.push(chunk.slice());
+          }),
+        );
+      },
+      stream: (path) => {
+        reads += 1;
 
-      return reads === 1 ? Stream.fromIterable(files.get(path) ?? []) : Stream.fail(cause);
-    },
-  });
+        return reads === 1 ? Stream.fromIterable(files.get(path) ?? []) : Stream.fail(cause);
+      },
+    }),
+  );
 
   return Effect.gen(function* () {
     const trajectory = Trajectory.make(

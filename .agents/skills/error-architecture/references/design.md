@@ -2,6 +2,8 @@
 
 Use this reference for choosing the public error shape, grouping failure reasons, and designing fields. The goal is a stable answer to: "What failure can a caller recognize and act on?"
 
+If the module is new and has no observed failure sites yet, this reference does not apply: use `bootstrap.md` first.
+
 ## Read this first
 
 The vocabulary below is a search aid, not a menu of errors. A tag, reason, or field name is only a hypothesis until the target module's source, consumer, boundary signal, or existing wire contract proves it. Never copy a name or field from this document into a design without an evidence-table row.

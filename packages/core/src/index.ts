@@ -29,3 +29,7 @@ export * as Metric from "./Metric.ts";
 export * as Metrickit from "./Metrickit.ts";
 
 export * as StreamStore from "./StreamStore.ts";
+
+export * as Tool from "./Tool.ts";
+
+export * as Toolkit from "./Toolkit.ts";
