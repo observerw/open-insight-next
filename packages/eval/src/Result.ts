@@ -71,6 +71,20 @@ export type TrailReducer<G extends Schema.Constraint, S extends Schema.Constrain
   exec: TrailReduceExec<G, S>;
 }>;
 
-export const reduceTrails = <S extends Schema.Constraint>(schema: S) => {};
+export const reduceTrails =
+  <G extends Schema.Constraint, S extends Schema.Constraint>({
+    gradeSchema,
+    resultSchema,
+  }: {
+    gradeSchema: G;
+    resultSchema: S;
+  }) =>
+  (exec: TrailReduceExec<G, S>) => {};
 
-export const reduceTasks = <S extends Schema.Constraint>(schema: S) => {};
+export const reduceTasks = <S extends Schema.Constraint>({
+  trailSchema,
+  resultSchema,
+}: {
+  trailSchema: S;
+  resultSchema: S;
+}) => {};

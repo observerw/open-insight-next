@@ -10,7 +10,8 @@ import { type Tool, Toolkit } from "effect/unstable/ai";
 import { foldSession } from "#/internal/trajectory.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
-import * as StreamStore from "#/StreamStore.ts";
+import * as StreamReader from "#/StreamReader.ts";
+import * as StreamWriter from "#/StreamWriter.ts";
 import { Timestamp, Uuid } from "#/Schema.ts";
 import * as ToolkitData from "#/Toolkit.ts";
 
@@ -654,6 +655,9 @@ export const session = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+/**
+ * Part of a session, either a prompt or a response.
+ */
 export type AllSessionPart<Tools extends Record<string, Tool.Any>> =
   | Prompt.Prompt
   | Response.AllPartsView<Tools>;
@@ -785,7 +789,8 @@ export const responseMetadataParts = (
  */
 export const persist = (path: string) =>
   Effect.fn(function* <Tools extends Record<string, Tool.Any>>(trajectory: Trajectory<Tools>) {
-    const store = yield* StreamStore.StreamStore;
+    const reader = yield* StreamReader.StreamReader;
+    const writer = yield* StreamWriter.StreamWriter;
     const partSchema = Part(trajectory.toolkit);
     const decodingContext = yield* Effect.context<typeof partSchema.DecodingServices>();
 
@@ -799,13 +804,14 @@ export const persist = (path: string) =>
       Stream.concat(encodedParts),
     );
 
-    yield* store
-      .save(Schema.Unknown)(path, lines)
+    yield* writer
+      .write(Schema.Unknown)(path, lines)
       .pipe(Effect.mapError(() => TrajectoryError.save(path)));
 
-    const headers = yield* store
-      .load(Schema.Unknown)(path, { limit: 2 })
+    const headers = yield* reader
+      .read(Schema.Unknown)(path)
       .pipe(
+        Stream.take(2),
         Stream.runCollect,
         Effect.mapError(() => TrajectoryError.load(path)),
       );
@@ -828,9 +834,10 @@ export const persist = (path: string) =>
 
     const decodePart = Schema.decodeUnknownEffect(partSchema);
 
-    const parts = store
-      .load(Schema.Unknown)(path, { offset: 2 })
+    const parts = reader
+      .read(Schema.Unknown)(path)
       .pipe(
+        Stream.drop(2),
         Stream.mapEffect((part) => decodePart(part).pipe(Effect.provideContext(decodingContext))),
         Stream.mapError(() => TrajectoryError.load(path)),
       );

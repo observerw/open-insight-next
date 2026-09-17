@@ -11,7 +11,8 @@ import {
   Stream,
 } from "effect";
 import { Tool, Toolkit } from "effect/unstable/ai";
-import * as NdjsonStore from "#/StreamStore.ts";
+import * as StreamReader from "#/StreamReader.ts";
+import * as StreamWriter from "#/StreamWriter.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import * as ToolkitData from "#/Toolkit.ts";
@@ -403,8 +404,10 @@ it.effect("maps toolkit decoding failures to trajectory decode errors", () =>
 
 const ndjsonStore = (
   fileSystem: Layer.Layer<FileSystem.FileSystem>,
-): Layer.Layer<NdjsonStore.StreamStore> =>
-  NdjsonStore.StreamStore.layer.pipe(Layer.provide(fileSystem));
+): Layer.Layer<StreamReader.StreamReader | StreamWriter.StreamWriter> =>
+  Layer.merge(StreamReader.StreamReader.layer, StreamWriter.StreamWriter.layer).pipe(
+    Layer.provide(fileSystem),
+  );
 
 const memoryStore = () => {
   const files = new Map<string, Array<Uint8Array>>();

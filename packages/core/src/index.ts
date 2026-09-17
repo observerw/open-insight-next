@@ -28,7 +28,9 @@ export * as Metric from "./Metric.ts";
 
 export * as Metrickit from "./Metrickit.ts";
 
-export * as StreamStore from "./StreamStore.ts";
+export * as StreamReader from "./StreamReader.ts";
+
+export * as StreamWriter from "./StreamWriter.ts";
 
 export * as Tool from "./Tool.ts";
 

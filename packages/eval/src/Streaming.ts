@@ -5,7 +5,8 @@ import {
   type Sandbox,
   Response,
   Metrickit,
-  StreamStore,
+  StreamReader,
+  StreamWriter,
   Metric,
 } from "@open-insight/core";
 import {
@@ -32,7 +33,8 @@ export type EvalError =
   | Trajectory.TrajectoryError
   | Grade.GradeError
   | Metric.MetricError
-  | StreamStore.StreamStoreError;
+  | StreamReader.ReadFailed
+  | StreamWriter.WriteFailed;
 
 const makeSessionStream = ({
   promptSession,
@@ -118,13 +120,14 @@ type TrailOptions = Readonly<{
   grader: Grade.Grader<any>;
 }>;
 const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptions) {
-  const store = yield* StreamStore.StreamStore;
+  const reader = yield* StreamReader.StreamReader;
+  const writer = yield* StreamWriter.StreamWriter;
   const trailCache = yield* ensureTrailCache(id);
   if (trailCache.exists) {
-    return store.load(Event.TrailEvent)(trailCache.file);
+    return reader.read(Event.TrailEvent)(trailCache.file);
   }
 
-  const { resources, prompt: promptSession, snapshot, metrickit } = task;
+  const { resources, prompt: promptSession, snapshot } = task;
 
   const sbxSession = yield* harness.runSandbox(snapshot, { resources });
   const sandbox = sbxSession.sandbox;
@@ -164,7 +167,7 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
       ): Stream.Stream<
         Event.TrailSuccessEvent,
         Event.TrailFailedEvent | EvalError,
-        StreamStore.StreamStore
+        StreamReader.StreamReader | StreamWriter.StreamWriter
       > =>
         Effect.gen(function* () {
           yield* Effect.logDebug(
@@ -204,8 +207,8 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
     .pipe(Stream.concat(startEvent), Stream.concat(attemptEvents), Stream.merge(metricEvents))
     .pipe(Stream.broadcastN({ n: 2, capacity: "unbounded" }));
 
-  const cacheFiber = yield* store
-    .save(Event.TrailSuccessEvent)(trailCache.file, streamForCaching)
+  const cacheFiber = yield* writer
+    .write(Event.TrailSuccessEvent)(trailCache.file, streamForCaching)
     .pipe(Effect.forkScoped);
 
   return stream.pipe(Stream.onEnd(Fiber.join(cacheFiber)));
