@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, Stream } from "effect";
 import { Prompt, Metric, Response, Harness } from "@open-insight/core";
 import * as Bench from "#/Bench.ts";
 import * as Task from "#/Task.ts";
@@ -46,7 +46,7 @@ export class SessionStreamEvent extends Schema.TaggedClass<SessionStreamEvent>()
   "SessionStreamEvent",
   {
     id: SessionID,
-    part: Response.Part(Toolkit.empty),
+    part: Response.AllParts(Toolkit.empty),
   },
 ) {}
 
@@ -85,6 +85,9 @@ export class SessionErrorEvent extends Schema.TaggedClass<SessionErrorEvent>()(
 export const SessionFailedEvent = Schema.Union([SessionErrorEvent]);
 
 export type SessionFailedEvent = Schema.Schema.Type<typeof SessionFailedEvent>;
+
+export const SessionEvent = Schema.Union([SessionSuccessEvent, SessionFailedEvent]);
+export type SessionEvent = Schema.Schema.Type<typeof SessionEvent>;
 
 export class TrailStartEvent extends Schema.TaggedClass<TrailStartEvent>()("TrailStartEvent", {
   id: TrailID,
@@ -126,6 +129,9 @@ export const TrailFailedEvent = Schema.Union([TrailErrorEvent, SessionFailedEven
 
 export type TrailFailedEvent = Schema.Schema.Type<typeof TrailFailedEvent>;
 
+export const TrailEvent = Schema.Union([TrailSuccessEvent, TrailFailedEvent]);
+export type TrailEvent = Schema.Schema.Type<typeof TrailEvent>;
+
 export class TaskStartEvent extends Schema.TaggedClass<TaskStartEvent>()("TaskStartEvent", {
   id: TaskID,
   task: Task.Metadata,
@@ -148,6 +154,9 @@ export class TaskErrorEvent extends Schema.TaggedClass<TaskErrorEvent>()("TaskEr
 export const TaskFailedEvent = Schema.Union([TaskErrorEvent, TrailFailedEvent]);
 
 export type TaskFailedEvent = Schema.Schema.Type<typeof TaskFailedEvent>;
+
+export const TaskEvent = Schema.Union([TaskSuccessEvent, TaskFailedEvent]);
+export type TaskEvent = Schema.Schema.Type<typeof TaskEvent>;
 
 export class EvalStartEvent extends Schema.TaggedClass<EvalStartEvent>()("EvalStartEvent", {
   id: EvalID,
@@ -173,5 +182,12 @@ export const EvalFailedEvent = Schema.Union([EvalErrorEvent, TaskFailedEvent]);
 export type EvalFailedEvent = Schema.Schema.Type<typeof EvalFailedEvent>;
 
 export const EvalEvent = Schema.Union([EvalSuccessEvent, EvalFailedEvent]);
-
 export type EvalEvent = Schema.Schema.Type<typeof EvalEvent>;
+
+const isSessionSuccessEvent = Schema.is(SessionSuccessEvent);
+export const sessionFilter =
+  (sessionIdx: number) =>
+  <A extends SessionSuccessEvent, E, R>(events: Stream.Stream<A, E, R>) =>
+    events.pipe(
+      Stream.filter((event) => isSessionSuccessEvent(event) && event.id.sessionIdx === sessionIdx),
+    );

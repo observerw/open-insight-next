@@ -12,7 +12,7 @@ export const ensureDir = Effect.fn(function* (evalID: string) {
   return yield* Cache.ensureDir({ subdir: path.join(NAMESPACE, commit, evalID) });
 }, Effect.provide(Git.Git.layer));
 
-export const trailCache = Effect.fn(function* ({ evalID, taskID, trailIdx }: TrailID) {
+export const ensureTrailCache = Effect.fn(function* ({ evalID, taskID, trailIdx }: TrailID) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 

@@ -4,7 +4,6 @@ import {
   type Harness,
   type Sandbox,
   Response,
-  Agent,
   Metrickit,
   StreamStore,
   Metric,
@@ -12,18 +11,12 @@ import {
 import {
   Cause,
   Effect,
-  FileSystem,
   Match,
   Option,
-  Path,
   Queue,
   Ref,
   Semaphore,
-  Crypto,
   Stream,
-  Array,
-  Scope,
-  flow,
   Deferred,
   Fiber,
 } from "effect";
@@ -32,6 +25,7 @@ import * as Event from "#/Event.ts";
 import * as Task from "#/Task.ts";
 import * as Grade from "#/Grade.ts";
 import { Toolkit } from "effect/unstable/ai";
+import { ensureTrailCache } from "./internal/eval.ts";
 
 export type EvalError =
   | Harness.HarnessError
@@ -79,63 +73,42 @@ type SessionOptions = Readonly<{
   id: Event.SessionID;
   sessionStream: Trajectory.SessionStream<any, EvalError>;
 }>;
-const makeSession = Effect.fn(
-  function* ({ id, sessionStream }: SessionOptions) {
-    const sessionStreamShared = yield* sessionStream.pipe(Stream.share({ capacity: "unbounded" }));
+const makeSession = Effect.fn(function* ({ id, sessionStream }: SessionOptions) {
+  const finishPartRef = yield* Ref.make<Option.Option<Response.FinishPart>>(Option.none());
 
-    const trajectory = Trajectory.fromStreamSession(sessionStreamShared, Toolkit.empty);
-    const partStreamShared = yield* trajectory.pipe(Stream.broadcast({ capacity: "unbounded" }));
-
-    const persistFiber = yield* Trajectory.make(
-      partStreamShared, // can't use trajectory directly once shared
-      trajectory.toolkit,
-      trajectory.metadata,
-    )
-      .pipe(Trajectory.persist("")) // TODO persist path
-      .pipe(Effect.forkScoped);
-
-    const startEvent = Stream.succeed(Event.SessionStartEvent.make({ id }));
-    const sessionEvents = sessionStreamShared.pipe(
-      Stream.map((part) =>
-        Match.value(part).pipe(
-          Match.when(Prompt.isPrompt, (prompt) => Event.SessionPromptEvent.make({ id, prompt })),
-          Match.orElse((part) => Event.SessionStreamEvent.make({ id, part })),
-        ),
-      ),
-    );
-
-    const endEvent = Stream.run(partStreamShared, Trajectory.finishPart).pipe(
-      Effect.map(
-        Option.match({
-          onSome: ({ reason, usage }) => Event.SessionEndEvent.make({ id, reason, usage }),
-          onNone: () => Event.SessionEndEvent.make({ id, reason: null, usage: null }),
-        }),
-      ),
-      Stream.fromEffect,
-    );
-
-    const result = Effect.gen(function* () {
-      const persisted = yield* Fiber.join(persistFiber);
-      // result trajectory should be read from persisted
-      return yield* Effect.fail(new Task.SessionResult({ trajectory: persisted }));
-    }).pipe(Stream.fromEffect);
-
-    return Stream.empty.pipe(
-      Stream.concat(startEvent),
-      Stream.concat(sessionEvents),
-      Stream.concat(endEvent),
-      Stream.concat(result),
-    );
-  },
-  (eff, { id }) =>
-    eff.pipe(
-      Stream.unwrap,
-      Stream.catchIf(
-        (error): error is EvalError => error._tag !== "SessionResult",
-        (error) => Stream.fail(Event.SessionErrorEvent.make({ id, error })),
+  const startEvent = Stream.succeed(Event.SessionStartEvent.make({ id }));
+  const sessionEvents = sessionStream.pipe(
+    Stream.tap(
+      Effect.fn(function* (part) {
+        if ("type" in part && part.type === "finish") {
+          yield* Ref.set(finishPartRef, Option.some(part));
+        }
+      }),
+    ),
+    Stream.map((part) =>
+      Match.value(part).pipe(
+        Match.when(Prompt.isPrompt, (prompt) => Event.SessionPromptEvent.make({ id, prompt })),
+        Match.orElse((part) => Event.SessionStreamEvent.make({ id, part })),
       ),
     ),
-);
+  );
+
+  const endEvent = Ref.get(finishPartRef).pipe(
+    Effect.map(
+      Option.match({
+        onSome: ({ reason, usage }) => Event.SessionEndEvent.make({ id, reason, usage }),
+        onNone: () => Event.SessionEndEvent.make({ id, reason: null, usage: null }),
+      }),
+    ),
+    Stream.fromEffect,
+  );
+
+  return Stream.empty.pipe(
+    Stream.concat(startEvent),
+    Stream.concat(sessionEvents),
+    Stream.concat(endEvent),
+  );
+}, Stream.unwrap);
 
 type TrailOptions = Readonly<{
   id: Event.TrailID;
@@ -146,15 +119,24 @@ type TrailOptions = Readonly<{
 const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptions) {
   const { resources, prompt: promptSession, snapshot, metrickit } = task;
 
+  const store = yield* StreamStore.StreamStore;
+  const trailCache = yield* ensureTrailCache(id);
+  if (trailCache.exists) {
+    // const [stream, streamForResult] = yield* store
+    //   .load(Event.TrailSuccessEvent)(trailCache.file)
+    //   .pipe(Stream.broadcastN({ n: 2, capacity: "unbounded" }));
+    // const trailResult = yield* Stream.run(streamForResult, trailResultSink);
+    // return stream.pipe(Stream.concat(Stream.fail(trailResult)));
+  }
+
   const sbxSession = yield* harness.runSandbox(snapshot, { resources });
   const sandbox = sbxSession.sandbox;
   const gradeSession = yield* grader.runSession(sandbox);
   const agentSession = yield* sbxSession.runAgent();
 
   const trajectoryQueue = yield* Queue.make<Trajectory.Any, Cause.Done>();
-  const sessionResultQueue = yield* Queue.make<Task.SessionResult, Cause.Done>();
-
   const trajectories = Stream.fromQueue(trajectoryQueue);
+
   const metricResults = yield* Metrickit.run(metrickit, { trajectories, sandbox });
   const metricEvents = metricResults.pipe(
     Stream.map((result) => Event.MetricEvent.make({ id, metricID: result.id, result })),
@@ -176,7 +158,7 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
         Stream.share({ capacity: "unbounded" }),
       );
       const sessionEvents = makeSession({ id: sessionID, sessionStream });
-      const trajectory = Trajectory.fromStreamSession(sessionStream, Toolkit.empty);
+      const trajectory = Trajectory.fromSessionStream(sessionStream, Toolkit.empty);
 
       yield* Queue.offer(trajectoryQueue, trajectory);
 
@@ -235,11 +217,15 @@ const makeTrail = Effect.fn(function* ({ id, task, harness, grader }: TrailOptio
   const startEvent = Stream.succeed(Event.TrailStartEvent.make({ id }));
   const attemptEvents = makeAttempt({ promptSession, agentSession, sessionIdx: 0 });
 
-  return Stream.empty.pipe(
-    Stream.concat(startEvent),
-    Stream.concat(attemptEvents),
-    Stream.merge(metricEvents),
-  );
+  const [stream, streamForCaching] = yield* Stream.empty
+    .pipe(Stream.concat(startEvent), Stream.concat(attemptEvents), Stream.merge(metricEvents))
+    .pipe(Stream.broadcastN({ n: 2, capacity: "unbounded" }));
+
+  const cacheFiber = yield* store
+    .save(Event.TrailSuccessEvent)(trailCache.file, streamForCaching)
+    .pipe(Effect.forkScoped);
+
+  return stream.pipe(Stream.onEnd(Fiber.join(cacheFiber)));
 }, Stream.unwrap);
 
 type TaskOptions = Readonly<{

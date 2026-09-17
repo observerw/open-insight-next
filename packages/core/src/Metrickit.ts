@@ -35,9 +35,13 @@ export const run = Effect.fn("Metric.run")(function* <Metrics extends Record<str
     sandbox: Sandbox.Sandbox;
   },
 ): Effect.fn.Return<ResultStream<Metrics>, never, Scope.Scope> {
-  const broadcasted = yield* trajectories.pipe(Stream.broadcast({ capacity: "unbounded" }));
+  const shared = yield* trajectories.pipe(
+    Stream.mapEffect(Stream.share({ capacity: "unbounded" })),
+    Stream.share({ capacity: "unbounded" }),
+  );
+
   const transformed = Object.values(metrickit.metrics).map((metric) =>
-    metric.transform(broadcasted, sandbox),
+    metric.transform(shared, sandbox),
   );
   return Stream.mergeAll(transformed, { concurrency: "unbounded" });
 });

@@ -76,7 +76,7 @@ it.effect("creates ordered trajectory parts and folds streamed responses", () =>
       Response.makePart("text", { text: "done" }),
     );
 
-    const parts = yield* Trajectory.fromStreamSession(session, Toolkit.empty).pipe(
+    const parts = yield* Trajectory.fromSessionStream(session, Toolkit.empty).pipe(
       Stream.runCollect,
       Effect.map((parts) => Array.from(parts)),
     );
@@ -114,7 +114,7 @@ it.effect("preserves session failures while folding streamed parts", () =>
       Stream.concat(Stream.fail(error)),
     );
 
-    const failure = yield* Trajectory.fromStreamSession(session, Toolkit.empty).pipe(
+    const failure = yield* Trajectory.fromSessionStream(session, Toolkit.empty).pipe(
       Stream.tap((part) =>
         Effect.sync(() => {
           observed.push(part);
@@ -138,7 +138,7 @@ it.effect("preserves session failures while folding streamed parts", () =>
 it("carries the toolkit and metadata of the trajectory", () => {
   const toolkit = Toolkit.empty;
 
-  const trajectory = Trajectory.fromStreamSession(Stream.empty, toolkit, { name: "session" });
+  const trajectory = Trajectory.fromSessionStream(Stream.empty, toolkit, { name: "session" });
 
   assert.strictEqual(trajectory.toolkit, toolkit);
   assert.strictEqual(trajectory.metadata.name, "session");

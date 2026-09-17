@@ -96,7 +96,7 @@ export class Metric<ID extends string, S extends Schema.Constraint> extends Data
   metadata: Metadata;
 
   transform: (
-    sessions: Stream.Stream<Trajectory.Any, MetricError>,
+    sessions: Stream.Stream<Trajectory.AnyPartStream, MetricError>,
     sandbox: Sandbox.Sandbox,
   ) => Stream.Stream<Result<ID, S>, MetricError>;
 }> {}

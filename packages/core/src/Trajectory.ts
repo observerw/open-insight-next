@@ -5,8 +5,9 @@
  * model, response parts record the parts produced in return, and the trajectory
  * carries the toolkit used to interpret tool parts and metadata describing it.
  */
-import { Effect, Function, Match, Option, Predicate, Result, Schema, Sink, Stream } from "effect";
+import { Effect, Function, Match, Option, Result, Schema, Sink, Stream } from "effect";
 import { type Tool, Toolkit } from "effect/unstable/ai";
+import { foldSession } from "#/internal/trajectory.ts";
 import * as Prompt from "#/Prompt.ts";
 import * as Response from "#/Response.ts";
 import * as StreamStore from "#/StreamStore.ts";
@@ -637,40 +638,17 @@ export const toSession = <Tools extends Record<string, Tool.Any>>(
     ),
   );
 
+export type SessionPart<Tools extends Record<string, Tool.Any>> =
+  | Prompt.Prompt
+  | Response.AllPartsView<Tools>;
+
 /**
  * Stream of streamed session turns.
  */
 export type SessionStream<Tools extends Record<string, Tool.Any>, E> = Stream.Stream<
-  Prompt.Prompt | Response.AllPartsView<Tools>,
+  SessionPart<Tools>,
   E
 >;
-
-type AccumulatedContent = {
-  text: string;
-  metadata: Response.ProviderMetadata;
-};
-
-type FoldState = {
-  readonly text: Map<string, AccumulatedContent>;
-  readonly reasoning: Map<string, AccumulatedContent>;
-};
-
-const mergeMetadata = (
-  left: Response.ProviderMetadata,
-  right: Response.ProviderMetadata,
-): Response.ProviderMetadata => {
-  const result = { ...left };
-
-  for (const [provider, metadata] of Object.entries(right)) {
-    const previous = result[provider];
-    result[provider] =
-      Predicate.isObject(previous) && Predicate.isObject(metadata)
-        ? Object.assign({}, previous, metadata)
-        : metadata;
-  }
-
-  return result;
-};
 
 /**
  * Flattens a stream of prompts and streamed response parts into a trajectory.
@@ -681,112 +659,19 @@ const mergeMetadata = (
  * the previous turn, while streamed text and reasoning parts are folded into a
  * single part once their stream ends.
  */
-export const fromStreamSession = <Tools extends Record<string, Tool.Any>, E>(
+export const fromSessionStream = <Tools extends Record<string, Tool.Any>, E>(
   session: SessionStream<Tools, E>,
   toolkit: Toolkit.Toolkit<Tools>,
   metadata: MetadataEncoded = {},
 ): Trajectory<Tools> => {
   const responsePartSchema = ResponsePart(toolkit);
 
-  const parts = session
-    .pipe(
-      Stream.mapAccum<FoldState, Prompt.Prompt | Response.AllPartsView<Tools>, Part<Tools>>(
-        () => ({ text: new Map(), reasoning: new Map() }),
-        (state, event) => {
-          if (Prompt.isPrompt(event)) {
-            state.text.clear();
-            state.reasoning.clear();
-
-            return [state, [promptPart(event)]];
-          }
-
-          switch (event.type) {
-            case "text-start":
-              state.text.set(event.id, { text: "", metadata: event.metadata });
-
-              return [state, []];
-            case "text-delta": {
-              const active = state.text.get(event.id);
-
-              if (active !== undefined) {
-                active.text += event.delta;
-                active.metadata = mergeMetadata(active.metadata, event.metadata);
-              }
-
-              return [state, []];
-            }
-
-            case "text-end": {
-              const active = state.text.get(event.id);
-
-              if (active === undefined) {
-                return [state, []];
-              }
-
-              state.text.delete(event.id);
-
-              return [
-                state,
-                [
-                  responsePartSchema.make({
-                    response: Response.makePart("text", {
-                      text: active.text,
-                      metadata: mergeMetadata(active.metadata, event.metadata),
-                    }),
-                  }),
-                ],
-              ];
-            }
-
-            case "reasoning-start":
-              state.reasoning.set(event.id, { text: "", metadata: event.metadata });
-
-              return [state, []];
-            case "reasoning-delta": {
-              const active = state.reasoning.get(event.id);
-
-              if (active !== undefined) {
-                active.text += event.delta;
-                active.metadata = mergeMetadata(active.metadata, event.metadata);
-              }
-
-              return [state, []];
-            }
-
-            case "reasoning-end": {
-              const active = state.reasoning.get(event.id);
-
-              if (active === undefined) {
-                return [state, []];
-              }
-
-              state.reasoning.delete(event.id);
-
-              return [
-                state,
-                [
-                  responsePartSchema.make({
-                    response: Response.makePart("reasoning", {
-                      text: active.text,
-                      metadata: mergeMetadata(active.metadata, event.metadata),
-                    }),
-                  }),
-                ],
-              ];
-            }
-
-            case "tool-params-start":
-            case "tool-params-delta":
-            case "tool-params-end":
-            case "error":
-              return [state, []];
-            default:
-              return [state, [responsePartSchema.make({ response: event })]];
-          }
-        },
-      ),
-    )
-    .pipe(Stream.mapError(TrajectoryError.streaming));
+  const parts = foldSession(session).pipe(
+    Stream.map((part): Part<Tools> =>
+      Prompt.isPrompt(part) ? promptPart(part) : responsePartSchema.make({ response: part }),
+    ),
+    Stream.mapError(TrajectoryError.streaming),
+  );
 
   return Object.assign(parts, { toolkit, metadata: Schema.decodeSync(Metadata)(metadata) });
 };

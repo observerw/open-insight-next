@@ -1,7 +1,6 @@
-import { Data, Effect, FileSystem, Path, Schema } from "effect";
+import { Data, Schema } from "effect";
 import * as Bench from "./Bench.ts";
-import { Cache, Git, Harness } from "@open-insight/core";
-import type { TrailID } from "./Event.ts";
+import { Harness } from "@open-insight/core";
 import type { NodeSdk } from "@effect/opentelemetry";
 
 export class Metadata extends Schema.Class<Metadata>("EvalMetadata")({

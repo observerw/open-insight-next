@@ -15,13 +15,9 @@ export class Metadata extends Schema.Class<Metadata>("Metadata")({
 }) {}
 export type MetadataEncoded = Schema.Codec.Encoded<typeof Metadata>;
 
-export class SessionResult extends Data.TaggedClass("SessionResult")<{
-  trajectory: Trajectory.Any;
-}> {}
-
 export class TrailResult<G extends Schema.Constraint> extends Data.TaggedClass("TrailResult")<{
   grade: G["Type"];
-  sessions: Array<SessionResult>;
+  sessions: Array<Trajectory.Any>;
 }> {}
 
 export class TaskResult<S extends Schema.Constraint> extends Data.TaggedClass("TaskResult")<{
